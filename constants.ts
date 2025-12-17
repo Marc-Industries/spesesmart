@@ -2,7 +2,7 @@ import { User } from './types';
 
 // Replace this with your actual Render/Heroku URL after deployment
 // For local testing: 'http://localhost:3000'
-export const BACKEND_URL = 'http://localhost:3000'; 
+export const BACKEND_URL = 'https://spesesmart.onrender.com'; 
 
 export const CATEGORIES = {
   EXPENSE: [
