@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LogOut, Plus, LayoutDashboard, CreditCard, Wallet, TrendingUp, TrendingDown,
   BrainCircuit, X, Settings, ArrowLeft, Sun, Moon, Calendar, ListFilter,
-  BarChart3, ChevronLeft, CalendarDays, Clock
+  BarChart3, ChevronLeft, CalendarDays, Clock, Archive
 } from 'lucide-react';
 import { Transaction, User, TransactionType, Language, Period, PaymentMethod } from './types.ts';
 import { MOCK_USERS, CATEGORIES } from './constants.ts';
@@ -16,10 +16,12 @@ import { SettingsModal } from './components/SettingsModal.tsx';
 import { convertCurrency, formatCurrency } from './utils/currency.ts';
 import { t } from './utils/translations.ts';
 import ReactMarkdown from 'react-markdown';
-import { isSameDay, isSameWeek, isSameMonth } from 'date-fns';
+import { isSameDay, isSameWeek, isSameMonth, isSameYear } from 'date-fns';
 
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Stato per gli utenti disponibili nella login, inizializzato con i mock ma aggiornato dal DB/LocalStorage
+  const [availableUsers, setAvailableUsers] = useState<User[]>(MOCK_USERS);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const lastUserActionRef = useRef<number>(Date.now());
@@ -33,8 +35,12 @@ function App() {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+  // Filtri Dashboard
   const [selectedPeriod, setSelectedPeriod] = useState<Period>(Period.ALL);
   const [paymentFilter, setPaymentFilter] = useState<'ALL' | PaymentMethod>('ALL');
+
+  // Filtri History
+  const [historyPeriod, setHistoryPeriod] = useState<Period>(Period.ALL);
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
   const [uiLanguage, setUiLanguage] = useState<Language>('it');
@@ -53,6 +59,24 @@ function App() {
       localStorage.setItem('theme', 'light');
     }
   }, [isDarkMode]);
+
+  // Carica i dati utente aggiornati all'avvio per visualizzare gli avatar corretti
+  useEffect(() => {
+    const fetchUsers = async () => {
+      const updatedUsers = await Promise.all(
+        MOCK_USERS.map(async (mockUser) => {
+          try {
+            const profile = await getUserProfile(mockUser.id);
+            return profile || mockUser;
+          } catch (e) {
+            return mockUser;
+          }
+        })
+      );
+      setAvailableUsers(updatedUsers);
+    };
+    fetchUsers();
+  }, []);
 
   useEffect(() => {
     let interval: number;
@@ -78,6 +102,7 @@ function App() {
     if (!silent) setIsLoadingData(false);
   };
 
+  // Logic for Dashboard Filter
   const filteredTransactions = useMemo(() => {
     const now = new Date();
     return transactions.filter(t => {
@@ -93,16 +118,33 @@ function App() {
     });
   }, [transactions, selectedPeriod, paymentFilter]);
 
+  // Logic for History Filter (Independent from Dashboard)
+  const historyFilteredTransactions = useMemo(() => {
+    const now = new Date();
+    return transactions.filter(t => {
+      if (historyPeriod === Period.ALL) return true;
+      const tDate = new Date(t.date);
+      switch (historyPeriod) {
+        case Period.DAILY: return isSameDay(tDate, now);
+        case Period.WEEKLY: return isSameWeek(tDate, now, { weekStartsOn: 1 });
+        case Period.MONTHLY: return isSameMonth(tDate, now);
+        case Period.YEARLY: return isSameYear(tDate, now);
+        default: return true;
+      }
+    });
+  }, [transactions, historyPeriod]);
+
   const uniqueCategories = useMemo(() => {
     return Array.from(new Set([...CATEGORIES.EXPENSE, ...CATEGORIES.INCOME]));
   }, []);
 
+  // Category view in History should use history filtered data
   const categoryFilteredTransactions = useMemo(() => {
     if (selectedHistoryCategory) {
-      return filteredTransactions.filter(t => t.category === selectedHistoryCategory);
+      return historyFilteredTransactions.filter(t => t.category === selectedHistoryCategory);
     }
-    return filteredTransactions;
-  }, [filteredTransactions, selectedHistoryCategory]);
+    return historyFilteredTransactions;
+  }, [historyFilteredTransactions, selectedHistoryCategory]);
 
   const stats = useMemo(() => {
     if (!currentUser) return { income: 0, expense: 0, balance: 0, filteredIncome: 0, filteredExpense: 0 };
@@ -121,7 +163,7 @@ function App() {
     };
   }, [transactions, filteredTransactions, currentUser?.preferences.currency]);
 
-  // Calcolo statistiche periodiche per la scheda History
+  // Calcolo statistiche periodiche per la scheda History (solo visualizzazione rapida)
   const timeStats = useMemo(() => {
       if (!currentUser) return { daily: 0, weekly: 0, monthly: 0 };
       const base = currentUser.preferences.currency;
@@ -139,14 +181,14 @@ function App() {
       };
   }, [transactions, currentUser?.preferences.currency]);
 
-  const handleUserSelect = async (mockUser: User) => {
+  const handleUserSelect = async (user: User) => {
     try {
-        const dbUser = await getUserProfile(mockUser.id);
-        const userToLogin = dbUser || mockUser;
+        const dbUser = await getUserProfile(user.id);
+        const userToLogin = dbUser || user;
         setSelectedLoginUser(userToLogin);
         setLoginStep('password');
     } catch (e) {
-        setSelectedLoginUser(mockUser);
+        setSelectedLoginUser(user);
         setLoginStep('password');
     }
   };
@@ -169,7 +211,13 @@ function App() {
   };
 
   const handleLogout = () => { setCurrentUser(null); setTransactions([]); setAiAnalysis(null); setLoginStep('select_user'); };
-  const handleUpdateProfile = async (u: User) => { setCurrentUser(u); await updateUserProfile(u); };
+  
+  const handleUpdateProfile = async (u: User) => { 
+    setCurrentUser(u); 
+    await updateUserProfile(u);
+    // Aggiorna anche la lista locale per la schermata di login
+    setAvailableUsers(prev => prev.map(user => user.id === u.id ? u : user));
+  };
   
   const handleAddTransaction = async (t: Transaction) => { 
     lastUserActionRef.current = Date.now();
@@ -208,7 +256,7 @@ function App() {
           {loginStep === 'select_user' ? (
             <div className="space-y-4">
               <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">{t('login_subtitle', uiLanguage)}</p>
-              {MOCK_USERS.map(user => (
+              {availableUsers.map(user => (
                 <button key={user.id} onClick={() => handleUserSelect(user)} className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all group ${isDarkMode ? 'border-slate-700 hover:bg-slate-700 hover:border-blue-500' : 'border-slate-100 hover:bg-blue-50 hover:border-blue-500'}`}>
                   <img src={user.avatar} className="w-12 h-12 rounded-full shadow-sm bg-slate-100 dark:bg-slate-600" alt={user.name} />
                   <div className="text-left">
@@ -284,7 +332,7 @@ function App() {
               <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
                 {[Period.DAILY, Period.WEEKLY, Period.MONTHLY, Period.ALL].map(p => (
                   <button key={p} onClick={() => setSelectedPeriod(p)} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${selectedPeriod === p ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
-                    {p}
+                    {t(p, language)}
                   </button>
                 ))}
               </div>
@@ -292,7 +340,7 @@ function App() {
               <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
                 {['ALL', 'CARD', 'CASH'].map(m => (
                   <button key={m} onClick={() => setPaymentFilter(m as any)} className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${paymentFilter === m ? 'bg-slate-800 text-white border border-slate-700' : 'text-slate-500 hover:text-slate-300'}`}>
-                    {m}
+                    {t(m.toLowerCase(), language).toUpperCase()}
                   </button>
                 ))}
               </div>
@@ -324,18 +372,29 @@ function App() {
                 <div className="grid grid-cols-3 gap-3 md:gap-6 mb-8">
                   <div className={`p-4 rounded-2xl border text-center ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
                       <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-center gap-1"><Clock className="w-3 h-3"/> Spese Oggi</div>
-                      <div className="text-lg md:text-2xl font-black text-slate-700 dark:text-slate-200">-{formatCurrency(timeStats.daily, baseCurrency)}</div>
+                      <div className={`text-lg md:text-2xl font-black ${isDarkMode ? 'text-white' : 'text-black'}`}>-{formatCurrency(timeStats.daily, baseCurrency)}</div>
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
                       <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-center gap-1"><CalendarDays className="w-3 h-3"/> Spese Settimana</div>
-                      <div className="text-lg md:text-2xl font-black text-slate-700 dark:text-slate-200">-{formatCurrency(timeStats.weekly, baseCurrency)}</div>
+                      <div className={`text-lg md:text-2xl font-black ${isDarkMode ? 'text-white' : 'text-black'}`}>-{formatCurrency(timeStats.weekly, baseCurrency)}</div>
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
                       <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-center gap-1"><Calendar className="w-3 h-3"/> Spese Mese</div>
-                      <div className="text-lg md:text-2xl font-black text-slate-700 dark:text-slate-200">-{formatCurrency(timeStats.monthly, baseCurrency)}</div>
+                      <div className={`text-lg md:text-2xl font-black ${isDarkMode ? 'text-white' : 'text-black'}`}>-{formatCurrency(timeStats.monthly, baseCurrency)}</div>
                   </div>
                 </div>
              )}
+
+             {/* HISTORY FILTER BAR */}
+             <div className="flex overflow-x-auto gap-3 pb-2 no-scrollbar items-center mb-6">
+                <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
+                  {[Period.DAILY, Period.WEEKLY, Period.MONTHLY, Period.YEARLY, Period.ALL].map(p => (
+                    <button key={p} onClick={() => setHistoryPeriod(p)} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${historyPeriod === p ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+                      {t(p, language)}
+                    </button>
+                  ))}
+                </div>
+             </div>
 
              <div className="flex gap-8 mb-8 border-b dark:border-slate-800">
                 <button onClick={() => { setHistorySubTab('total'); setSelectedHistoryCategory(null); }} className={`relative pb-4 text-sm font-bold transition-all px-1 ${historySubTab === 'total' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'}`}>
@@ -362,7 +421,7 @@ function App() {
                    
                    {/* GROUPED LIST BY MONTH */}
                    <TransactionList 
-                      transactions={filteredTransactions} 
+                      transactions={historyFilteredTransactions} 
                       onDelete={handleDeleteTransaction} 
                       baseCurrency={baseCurrency} 
                       language={language} 
@@ -378,7 +437,7 @@ function App() {
                           <button key={cat} onClick={() => setSelectedHistoryCategory(cat)} className={`flex flex-col items-center justify-center p-6 rounded-3xl border-2 transition-all group ${isDarkMode ? 'bg-slate-800 border-slate-700 hover:border-blue-500' : 'bg-white border-slate-100 hover:border-blue-500 hover:shadow-xl'}`}>
                             <div className="p-4 rounded-2xl bg-blue-600/10 text-blue-600 mb-4 group-hover:scale-110 transition-transform"><BarChart3 size={28}/></div>
                             <span className={`font-black text-sm uppercase tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-900'}`}>{t(cat, language)}</span>
-                            <span className="text-[10px] mt-1 text-slate-400 font-bold">{transactions.filter(t => t.category === cat).length} Transazioni</span>
+                            <span className="text-[10px] mt-1 text-slate-400 font-bold">{historyFilteredTransactions.filter(t => t.category === cat).length} Transazioni</span>
                           </button>
                         ))}
                       </div>
