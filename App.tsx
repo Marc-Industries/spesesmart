@@ -2,19 +2,19 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LogOut, Plus, LayoutDashboard, CreditCard, Wallet, TrendingUp, TrendingDown,
-  BrainCircuit, X, Settings, ArrowLeft, Sun, Moon, Calendar, Banknote, ListFilter,
-  PieChart as PieIcon, BarChart3, ChevronRight, ChevronLeft
+  BrainCircuit, X, Settings, ArrowLeft, Sun, Moon, Calendar, ListFilter,
+  BarChart3, ChevronLeft
 } from 'lucide-react';
-import { Transaction, User, TransactionType, Language, Period, PaymentMethod } from './types';
-import { MOCK_USERS, CATEGORIES } from './constants';
-import { getTransactions, addTransaction, deleteTransaction, getUserProfile, updateUserProfile } from './services/dataService';
-import { analyzeFinances } from './services/geminiService';
-import { ExpensePieChart, IncomePieChart, BalanceTrendChart, CategoryBarChart, PaymentMethodPieChart } from './components/Charts';
-import { TransactionForm } from './components/TransactionForm';
-import { TransactionList } from './components/TransactionList';
-import { SettingsModal } from './components/SettingsModal';
-import { convertCurrency, formatCurrency } from './utils/currency';
-import { t } from './utils/translations';
+import { Transaction, User, TransactionType, Language, Period, PaymentMethod } from './types.ts';
+import { MOCK_USERS, CATEGORIES } from './constants.ts';
+import { getTransactions, addTransaction, deleteTransaction, getUserProfile, updateUserProfile } from './services/dataService.ts';
+import { analyzeFinances } from './services/geminiService.ts';
+import { ExpensePieChart, IncomePieChart, BalanceTrendChart, PaymentMethodPieChart } from './components/Charts.tsx';
+import { TransactionForm } from './components/TransactionForm.tsx';
+import { TransactionList } from './components/TransactionList.tsx';
+import { SettingsModal } from './components/SettingsModal.tsx';
+import { convertCurrency, formatCurrency } from './utils/currency.ts';
+import { t } from './utils/translations.ts';
 import ReactMarkdown from 'react-markdown';
 import { isSameDay, isSameWeek, isSameMonth } from 'date-fns';
 
@@ -78,7 +78,7 @@ function App() {
   const filteredTransactions = useMemo(() => {
     const now = new Date();
     return transactions.filter(t => {
-      // 1. Payment Method Filter - IMPORTANT: Default to 'CARD' if undefined/null
+      // 1. Payment Method Filter - Default a 'CARD' se non presente per evitare sparizioni
       const method = t.paymentMethod || 'CARD';
       if (paymentFilter !== 'ALL' && method !== paymentFilter) return false;
 
@@ -97,7 +97,12 @@ function App() {
     });
   }, [transactions, selectedPeriod, paymentFilter]);
 
-  // Specific filter for category detail view
+  // Lista categorie UNICA per il menu
+  const uniqueCategories = useMemo(() => {
+    return Array.from(new Set([...CATEGORIES.EXPENSE, ...CATEGORIES.INCOME]));
+  }, []);
+
+  // Filtro specifico per dettaglio categoria
   const categoryFilteredTransactions = useMemo(() => {
     if (selectedHistoryCategory) {
       return filteredTransactions.filter(t => t.category === selectedHistoryCategory);
@@ -122,11 +127,6 @@ function App() {
     };
   }, [transactions, filteredTransactions, currentUser?.preferences.currency]);
 
-  // Unique Categories List - Ensures 'Altro' is only shown once
-  const uniqueCategories = useMemo(() => {
-    return Array.from(new Set([...CATEGORIES.EXPENSE, ...CATEGORIES.INCOME]));
-  }, []);
-
   // --- HANDLERS ---
   const handleUserSelect = async (mockUser: User) => {
     try {
@@ -134,8 +134,6 @@ function App() {
         const userToLogin = dbUser || mockUser;
         setSelectedLoginUser(userToLogin);
         setLoginStep('password');
-        setLoginError(false);
-        setPasswordInput('');
     } catch (e) {
         setSelectedLoginUser(mockUser);
         setLoginStep('password');
@@ -220,7 +218,7 @@ function App() {
   return (
     <div className={`min-h-screen pb-24 md:pb-0 flex transition-colors duration-300 ${isDarkMode ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       
-      {/* SIDEBAR DESKTOP */}
+      {/* SIDEBAR */}
       <aside className={`hidden md:flex flex-col w-64 border-r fixed h-full z-10 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
         <div className="p-6 flex items-center gap-3 font-bold text-xl"><Wallet className="text-blue-600"/> SpeseSmart</div>
         <nav className="flex-1 px-4 space-y-2 mt-4">
@@ -233,7 +231,6 @@ function App() {
 
       {/* MAIN */}
       <main className="flex-1 md:ml-64 p-4 md:p-8 max-w-7xl mx-auto w-full">
-        {/* MOBILE HEADER */}
         <div className="md:hidden flex justify-between items-center mb-6">
           <div className="flex items-center gap-2 font-bold"><Wallet className="text-blue-600"/> SpeseSmart</div>
           <div className="flex gap-2">
@@ -242,7 +239,7 @@ function App() {
           </div>
         </div>
 
-        {/* TOP STATS */}
+        {/* STATS CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl border border-slate-700 relative overflow-hidden">
             <p className="text-slate-400 text-sm mb-1">{t('balance', language)}</p>
@@ -259,35 +256,19 @@ function App() {
           </div>
         </div>
 
-        {/* FILTERS */}
+        {/* PERIOD FILTERS */}
         <div className="mb-6 flex overflow-x-auto gap-3 pb-2 no-scrollbar items-center">
           <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
             {[Period.DAILY, Period.WEEKLY, Period.MONTHLY, Period.ALL].map(p => (
-              <button 
-                key={p} 
-                onClick={() => setSelectedPeriod(p)} 
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                  selectedPeriod === p 
-                    ? 'bg-blue-600 text-white shadow-lg' 
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                <Calendar size={14} /> {p}
+              <button key={p} onClick={() => setSelectedPeriod(p)} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${selectedPeriod === p ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+                {p}
               </button>
             ))}
           </div>
           <div className="h-10 w-px bg-slate-300 dark:bg-slate-700 mx-1"/>
           <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
             {['ALL', 'CARD', 'CASH'].map(m => (
-              <button 
-                key={m} 
-                onClick={() => setPaymentFilter(m as any)} 
-                className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${
-                  paymentFilter === m 
-                    ? 'bg-slate-800 text-white border border-slate-700' 
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
+              <button key={m} onClick={() => setPaymentFilter(m as any)} className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${paymentFilter === m ? 'bg-slate-800 text-white border border-slate-700' : 'text-slate-500 hover:text-slate-300'}`}>
                 {m}
               </button>
             ))}
@@ -316,29 +297,12 @@ function App() {
                <h2 className={`text-3xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t('history', language)}</h2>
              </div>
              
-             {/* MENU DINAMICO */}
              <div className="flex gap-8 mb-8 border-b dark:border-slate-800">
-                <button 
-                  onClick={() => { setHistorySubTab('total'); setSelectedHistoryCategory(null); }} 
-                  className={`relative pb-4 text-sm font-bold transition-all px-1 ${
-                    historySubTab === 'total' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'
-                  }`}
-                >
+                <button onClick={() => { setHistorySubTab('total'); setSelectedHistoryCategory(null); }} className={`relative pb-4 text-sm font-bold transition-all px-1 ${historySubTab === 'total' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'}`}>
                   Tutti i Movimenti
                   {historySubTab === 'total' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full shadow-[0_-4px_10px_rgba(59,130,246,0.5)]" />}
                 </button>
-                <button 
-                  onClick={() => { 
-                    if (historySubTab === 'categories' && selectedHistoryCategory) {
-                      setSelectedHistoryCategory(null);
-                    } else {
-                      setHistorySubTab('categories');
-                    }
-                  }} 
-                  className={`relative pb-4 text-sm font-bold transition-all px-1 ${
-                    historySubTab === 'categories' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'
-                  }`}
-                >
+                <button onClick={() => { if (historySubTab === 'categories' && selectedHistoryCategory) setSelectedHistoryCategory(null); else setHistorySubTab('categories'); }} className={`relative pb-4 text-sm font-bold transition-all px-1 ${historySubTab === 'categories' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'}`}>
                   Per Categoria
                   {historySubTab === 'categories' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full shadow-[0_-4px_10px_rgba(59,130,246,0.5)]" />}
                 </button>
@@ -355,34 +319,14 @@ function App() {
                        <div className={`prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}><ReactMarkdown>{aiAnalysis}</ReactMarkdown></div>
                      </div>
                    )}
-
-                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <BalanceTrendChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
-                      <PaymentMethodPieChart type={TransactionType.EXPENSE} transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
-                   </div>
-                   <div className={`p-6 rounded-3xl shadow-sm border transition-colors ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
-                      <div className="flex items-center justify-between mb-6">
-                         <h3 className={`text-xl font-bold flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}><ListFilter size={20}/> {t('history', language)}</h3>
-                         <span className="text-xs font-black bg-blue-600/10 text-blue-600 px-3 py-1 rounded-full uppercase tracking-tighter">{filteredTransactions.length} Movimenti</span>
-                      </div>
-                      <TransactionList transactions={filteredTransactions} onDelete={handleDeleteTransaction} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
-                   </div>
+                   <TransactionList transactions={filteredTransactions} onDelete={handleDeleteTransaction} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
                 </div>
              ) : (
                 <div className="animate-fade-in">
                    {!selectedHistoryCategory ? (
-                      /* MENU SELEZIONE CATEGORIA - UNIQUE LIST */
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                         {uniqueCategories.map(cat => (
-                          <button 
-                            key={cat} 
-                            onClick={() => setSelectedHistoryCategory(cat)}
-                            className={`flex flex-col items-center justify-center p-6 rounded-3xl border-2 transition-all group ${
-                              isDarkMode 
-                              ? 'bg-slate-800 border-slate-700 hover:border-blue-500' 
-                              : 'bg-white border-slate-100 hover:border-blue-500 hover:shadow-xl'
-                            }`}
-                          >
+                          <button key={cat} onClick={() => setSelectedHistoryCategory(cat)} className={`flex flex-col items-center justify-center p-6 rounded-3xl border-2 transition-all group ${isDarkMode ? 'bg-slate-800 border-slate-700 hover:border-blue-500' : 'bg-white border-slate-100 hover:border-blue-500 hover:shadow-xl'}`}>
                             <div className="p-4 rounded-2xl bg-blue-600/10 text-blue-600 mb-4 group-hover:scale-110 transition-transform"><BarChart3 size={28}/></div>
                             <span className={`font-black text-sm uppercase tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-900'}`}>{t(cat, language)}</span>
                             <span className="text-[10px] mt-1 text-slate-400 font-bold">{transactions.filter(t => t.category === cat).length} Transazioni</span>
@@ -390,51 +334,23 @@ function App() {
                         ))}
                       </div>
                    ) : (
-                      /* DETTAGLIO CATEGORIA - LA SELEZIONE SPARISCE */
                       <div className="space-y-6 animate-fade-in">
-                          <button 
-                            onClick={() => setSelectedHistoryCategory(null)} 
-                            className="flex items-center gap-2 text-sm font-black text-blue-500 mb-2 hover:translate-x-[-4px] transition-transform"
-                          >
-                            <ChevronLeft size={18}/> TORNA ALLE CATEGORIE
-                          </button>
-
+                          <button onClick={() => setSelectedHistoryCategory(null)} className="flex items-center gap-2 text-sm font-black text-blue-500 mb-2 hover:translate-x-[-4px] transition-transform"><ChevronLeft size={18}/> TORNA ALLE CATEGORIE</button>
                           <div className={`flex flex-col md:flex-row md:items-center justify-between p-6 rounded-3xl border shadow-xl transition-colors ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-100'}`}>
                              <div className="flex items-center gap-5">
                                 <div className="p-4 rounded-2xl bg-blue-600 text-white shadow-xl shadow-blue-600/30"><BarChart3 size={28}/></div>
-                                <div>
-                                   <h3 className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t(selectedHistoryCategory, language)}</h3>
-                                   <p className={`text-sm font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>Report dettagliato categoria</p>
-                                </div>
+                                <div><h3 className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t(selectedHistoryCategory, language)}</h3><p className={`text-sm font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>Report dettagliato categoria</p></div>
                              </div>
                              <div className="mt-4 md:mt-0 md:text-right border-t md:border-t-0 pt-4 md:pt-0 border-slate-700">
                                 <p className={`text-[10px] font-black uppercase mb-1 tracking-widest ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Totale Periodo</p>
-                                <p className={`text-3xl font-black ${transactions.find(t => t.category === selectedHistoryCategory)?.type === TransactionType.INCOME ? 'text-emerald-400' : 'text-red-500'}`}>
-                                   {formatCurrency(categoryFilteredTransactions.reduce((s, tr) => s + convertCurrency(tr.amount, tr.currency, baseCurrency), 0), baseCurrency)}
-                                </p>
+                                <p className={`text-3xl font-black ${transactions.find(t => t.category === selectedHistoryCategory)?.type === TransactionType.INCOME ? 'text-emerald-400' : 'text-red-500'}`}>{formatCurrency(categoryFilteredTransactions.reduce((s, tr) => s + convertCurrency(tr.amount, tr.currency, baseCurrency), 0), baseCurrency)}</p>
                              </div>
                           </div>
-
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                              <BalanceTrendChart transactions={categoryFilteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
-                             <PaymentMethodPieChart 
-                                type={transactions.find(t => t.category === selectedHistoryCategory)?.type || TransactionType.EXPENSE} 
-                                transactions={categoryFilteredTransactions} 
-                                baseCurrency={baseCurrency} 
-                                language={language} 
-                                isDarkMode={isDarkMode} 
-                             />
+                             <PaymentMethodPieChart type={transactions.find(t => t.category === selectedHistoryCategory)?.type || TransactionType.EXPENSE} transactions={categoryFilteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
                           </div>
-
-                          <div className={`p-8 rounded-3xl shadow-sm border transition-colors ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
-                             <div className="flex justify-between items-center mb-8">
-                                <h4 className={`text-lg font-black flex items-center gap-2 uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>
-                                   <CreditCard size={20}/> Lista Movimenti
-                                </h4>
-                                <span className="text-xs font-black bg-blue-600/10 text-blue-600 px-4 py-1.5 rounded-full">{categoryFilteredTransactions.length} RISULTATI</span>
-                             </div>
-                             <TransactionList transactions={categoryFilteredTransactions} onDelete={handleDeleteTransaction} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
-                          </div>
+                          <TransactionList transactions={categoryFilteredTransactions} onDelete={handleDeleteTransaction} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
                       </div>
                    )}
                 </div>

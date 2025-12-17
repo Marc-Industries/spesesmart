@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="it">
   <head>
@@ -7,19 +8,28 @@
     <title>SpeseSmart AI Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      // Shim per prevenire ReferenceError: process is not defined nel browser
+      window.process = { env: { API_KEY: "" } };
+    </script>
     <style>
       body {
         font-family: 'Inter', sans-serif;
         background-color: #f8fafc;
       }
-      /* Hide scrollbar for Chrome, Safari and Opera */
       .no-scrollbar::-webkit-scrollbar {
           display: none;
       }
-      /* Hide scrollbar for IE, Edge and Firefox */
       .no-scrollbar {
-          -ms-overflow-style: none;  /* IE and Edge */
-          scrollbar-width: none;  /* Firefox */
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+      }
+      @keyframes fade-in {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .animate-fade-in {
+        animation: fade-in 0.3s ease-out forwards;
       }
     </style>
   <script type="importmap">
@@ -34,19 +44,19 @@
     "date-fns": "https://esm.sh/date-fns@^4.1.0",
     "react-markdown": "https://esm.sh/react-markdown@^10.1.0",
     "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
-    "express": "https://esm.sh/express@^5.2.1",
-    "cors": "https://esm.sh/cors@^2.8.5",
-    "node-telegram-bot-api": "https://esm.sh/node-telegram-bot-api@^0.67.0",
-    "mongoose": "https://esm.sh/mongoose@^9.0.1",
-    "crypto": "https://esm.sh/crypto@^1.0.1",
     "path": "https://esm.sh/path@^0.12.7",
-    "url": "https://esm.sh/url@^0.11.4"
+    "express": "https://esm.sh/express@^5.2.1",
+    "url": "https://esm.sh/url@^0.11.4",
+    "cors": "https://esm.sh/cors@^2.8.5",
+    "crypto": "https://esm.sh/crypto@^1.0.1",
+    "mongoose": "https://esm.sh/mongoose@^9.0.1",
+    "node-telegram-bot-api": "https://esm.sh/node-telegram-bot-api@^0.67.0"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>
