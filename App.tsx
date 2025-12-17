@@ -2,10 +2,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LogOut, Plus, LayoutDashboard, CreditCard, Wallet, TrendingUp, TrendingDown,
-  BrainCircuit, X, Settings, ArrowLeft, Sun, Moon, Calendar
+  BrainCircuit, X, Settings, ArrowLeft, Sun, Moon, Calendar, Banknote, ListFilter,
+  PieChart as PieIcon, BarChart3, ChevronRight, ChevronLeft
 } from 'lucide-react';
-import { Transaction, User, TransactionType, Language, Period } from './types';
-import { MOCK_USERS } from './constants';
+import { Transaction, User, TransactionType, Language, Period, PaymentMethod } from './types';
+import { MOCK_USERS, CATEGORIES } from './constants';
 import { getTransactions, addTransaction, deleteTransaction, getUserProfile, updateUserProfile } from './services/dataService';
 import { analyzeFinances } from './services/geminiService';
 import { ExpensePieChart, IncomePieChart, BalanceTrendChart, CategoryBarChart, PaymentMethodPieChart } from './components/Charts';
@@ -15,7 +16,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { convertCurrency, formatCurrency } from './utils/currency';
 import { t } from './utils/translations';
 import ReactMarkdown from 'react-markdown';
-import { isSameDay, isSameWeek, isSameMonth, startOfWeek } from 'date-fns';
+import { isSameDay, isSameWeek, isSameMonth } from 'date-fns';
 
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -25,11 +26,15 @@ function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history'>('dashboard');
+  const [historySubTab, setHistorySubTab] = useState<'total' | 'categories'>('total');
+  const [selectedHistoryCategory, setSelectedHistoryCategory] = useState<string | null>(null);
+
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  // Filter State
-  const [selectedPeriod, setSelectedPeriod] = useState<Period>(Period.MONTHLY);
+  // Filter States
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>(Period.ALL);
+  const [paymentFilter, setPaymentFilter] = useState<'ALL' | PaymentMethod>('ALL');
 
   // Theme & Login UI State
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
@@ -65,7 +70,7 @@ function App() {
   const loadData = async (userId: string, silent = false) => {
     if (!silent) setIsLoadingData(true);
     const data = await getTransactions(userId);
-    setTransactions(data);
+    if (data) setTransactions(data);
     if (!silent) setIsLoadingData(false);
   };
 
@@ -73,31 +78,38 @@ function App() {
   const filteredTransactions = useMemo(() => {
     const now = new Date();
     return transactions.filter(t => {
-      const tDate = new Date(t.date);
-      switch (selectedPeriod) {
-        case Period.DAILY:
-          return isSameDay(tDate, now);
-        case Period.WEEKLY:
-          return isSameWeek(tDate, now, { weekStartsOn: 1 }); // Monday start
-        case Period.MONTHLY:
-          return isSameMonth(tDate, now);
-        case Period.ALL:
-        default:
-          return true;
-      }
-    });
-  }, [transactions, selectedPeriod]);
+      // 1. Payment Method Filter - IMPORTANT: Default to 'CARD' if undefined/null
+      const method = t.paymentMethod || 'CARD';
+      if (paymentFilter !== 'ALL' && method !== paymentFilter) return false;
 
-  // --- STATS ---
+      // 2. Period Filter
+      if (selectedPeriod === Period.ALL) return true;
+
+      const tDate = new Date(t.date);
+      let periodMatch = true;
+      switch (selectedPeriod) {
+        case Period.DAILY: periodMatch = isSameDay(tDate, now); break;
+        case Period.WEEKLY: periodMatch = isSameWeek(tDate, now, { weekStartsOn: 1 }); break;
+        case Period.MONTHLY: periodMatch = isSameMonth(tDate, now); break;
+        default: periodMatch = true;
+      }
+      return periodMatch;
+    });
+  }, [transactions, selectedPeriod, paymentFilter]);
+
+  // Specific filter for category detail view
+  const categoryFilteredTransactions = useMemo(() => {
+    if (selectedHistoryCategory) {
+      return filteredTransactions.filter(t => t.category === selectedHistoryCategory);
+    }
+    return filteredTransactions;
+  }, [filteredTransactions, selectedHistoryCategory]);
+
   const stats = useMemo(() => {
     if (!currentUser) return { income: 0, expense: 0, balance: 0, filteredIncome: 0, filteredExpense: 0 };
     const base = currentUser.preferences.currency;
-    
-    // Total Balance (Always ALL time)
     const totalIncome = transactions.filter(t => t.type === TransactionType.INCOME).reduce((acc, t) => acc + convertCurrency(t.amount, t.currency, base), 0);
     const totalExpense = transactions.filter(t => t.type === TransactionType.EXPENSE).reduce((acc, t) => acc + convertCurrency(t.amount, t.currency, base), 0);
-    
-    // Period Stats (Based on Filter)
     const periodIncome = filteredTransactions.filter(t => t.type === TransactionType.INCOME).reduce((acc, t) => acc + convertCurrency(t.amount, t.currency, base), 0);
     const periodExpense = filteredTransactions.filter(t => t.type === TransactionType.EXPENSE).reduce((acc, t) => acc + convertCurrency(t.amount, t.currency, base), 0);
 
@@ -110,8 +122,12 @@ function App() {
     };
   }, [transactions, filteredTransactions, currentUser?.preferences.currency]);
 
+  // Unique Categories List - Ensures 'Altro' is only shown once
+  const uniqueCategories = useMemo(() => {
+    return Array.from(new Set([...CATEGORIES.EXPENSE, ...CATEGORIES.INCOME]));
+  }, []);
 
-  // --- AUTH HANDLERS ---
+  // --- HANDLERS ---
   const handleUserSelect = async (mockUser: User) => {
     try {
         const dbUser = await getUserProfile(mockUser.id);
@@ -128,110 +144,71 @@ function App() {
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedLoginUser && passwordInput === selectedLoginUser.password) {
-      localStorage.setItem('spese_smart_current_user', selectedLoginUser.id);
-      setCurrentUser(selectedLoginUser);
-      setUiLanguage(selectedLoginUser.preferences.language);
-      setLoginStep('select_user');
-      setSelectedLoginUser(null);
-      setPasswordInput('');
-    } else {
-      setLoginError(true);
+    if (selectedLoginUser) {
+      const correctPassword = selectedLoginUser.password || '1234';
+      if (passwordInput === correctPassword) {
+        setCurrentUser(selectedLoginUser);
+        setUiLanguage(selectedLoginUser.preferences.language);
+        setLoginStep('select_user');
+        setSelectedLoginUser(null);
+        setPasswordInput('');
+        setLoginError(false);
+      } else {
+        setLoginError(true);
+      }
     }
   };
 
-  const handleBackToUserSelect = () => {
-    setLoginStep('select_user');
-    setSelectedLoginUser(null);
-    setLoginError(false);
-  };
+  const handleLogout = () => { setCurrentUser(null); setTransactions([]); setAiAnalysis(null); setLoginStep('select_user'); };
+  const handleUpdateProfile = async (u: User) => { setCurrentUser(u); await updateUserProfile(u); };
+  const handleAddTransaction = async (t: Transaction) => { await addTransaction(t); loadData(currentUser!.id, true); };
+  const handleDeleteTransaction = async (id: string) => { if (window.confirm("Sicuro?")) { await deleteTransaction(id); loadData(currentUser!.id, true); } };
+  const handleAnalyze = async () => { if (!currentUser) return; setIsAnalyzing(true); const result = await analyzeFinances(transactions, currentUser.preferences.language, currentUser.preferences.currency); setAiAnalysis(result); setIsAnalyzing(false); };
 
-  const handleLogout = () => {
-    localStorage.removeItem('spese_smart_current_user');
-    setCurrentUser(null);
-    setTransactions([]);
-    setAiAnalysis(null);
-    setLoginStep('select_user');
-  };
-
-  const handleUpdateProfile = async (updatedUser: User) => {
-    if (!currentUser) return;
-    setCurrentUser(updatedUser);
-    await updateUserProfile(updatedUser);
-  };
-
-  const handleAddTransaction = async (t: Transaction) => {
-    await addTransaction(t);
-    loadData(currentUser!.id, true);
-  };
-
-  const handleDeleteTransaction = async (id: string) => {
-    if (window.confirm("Sei sicuro?")) {
-      await deleteTransaction(id);
-      loadData(currentUser!.id, true);
-    }
-  };
-
-  const handleAnalyze = async () => {
-    if (!currentUser) return;
-    setIsAnalyzing(true);
-    setAiAnalysis(null);
-    const result = await analyzeFinances(transactions, currentUser.preferences.language, currentUser.preferences.currency);
-    setAiAnalysis(result);
-    setIsAnalyzing(false);
-  };
-
-  // --- RENDER LOGIN ---
   if (!currentUser) {
     return (
       <div className={`min-h-screen flex items-center justify-center p-4 transition-colors duration-300 ${isDarkMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
-        <div className={`p-8 rounded-2xl shadow-xl max-w-md w-full text-center animate-fade-in transition-colors duration-300 ${isDarkMode ? 'bg-slate-800 text-white' : 'bg-white text-slate-900'}`}>
-          <div className="flex justify-between items-center mb-6">
-             <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2 rounded-full transition-colors ${isDarkMode ? 'bg-slate-700 text-yellow-400' : 'bg-slate-100 text-slate-600'}`}>
-               {isDarkMode ? <Sun className="w-5 h-5"/> : <Moon className="w-5 h-5"/>}
+        <div className={`p-8 rounded-3xl shadow-2xl max-w-md w-full text-center transition-colors duration-300 ${isDarkMode ? 'bg-slate-800 text-white' : 'bg-white text-slate-900'}`}>
+          <div className="flex justify-between items-center mb-8">
+             <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2.5 rounded-full transition-colors ${isDarkMode ? 'bg-slate-700 text-yellow-400' : 'bg-slate-100 text-slate-600'}`}>
+                {isDarkMode ? <Sun size={22}/> : <Moon size={22}/>}
              </button>
              <div className="flex gap-2">
-               {(['it', 'en', 'pl'] as Language[]).map(l => (
-                  <button key={l} onClick={() => setUiLanguage(l)} className={`text-xs font-bold px-2 py-1 rounded-md uppercase ${uiLanguage === l ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>{l}</button>
+               {['it', 'en', 'pl'].map(l => (
+                 <button key={l} onClick={() => setUiLanguage(l as Language)} className={`text-xs font-bold px-3 py-1.5 rounded-lg uppercase transition-all ${uiLanguage === l ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}>
+                   {l}
+                 </button>
                ))}
              </div>
           </div>
-          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-500/30">
-            <Wallet className="text-white w-8 h-8" />
-          </div>
-          <h1 className="text-2xl font-bold mb-2">SpeseSmart AI</h1>
+          <div className="w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-blue-500/30 ring-4 ring-blue-600/10"><Wallet className="text-white w-10 h-10" /></div>
+          <h1 className="text-3xl font-black mb-8 tracking-tight">SpeseSmart AI</h1>
           {loginStep === 'select_user' ? (
-            <>
-              <p className={`mb-8 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{t('login_subtitle', uiLanguage)}</p>
-              <div className="space-y-3">
-                {MOCK_USERS.map(user => (
-                  <button key={user.id} onClick={() => handleUserSelect(user)} className={`w-full flex items-center gap-4 p-3 rounded-xl border transition-all group ${isDarkMode ? 'border-slate-700 hover:bg-slate-700 hover:border-blue-500' : 'border-slate-200 hover:bg-blue-50 hover:border-blue-500'}`}>
-                    <img src={user.avatar} alt={user.name} className={`w-10 h-10 rounded-full ${isDarkMode ? 'bg-slate-600' : 'bg-slate-100'}`} />
-                    <div className="text-left">
-                        <div className={`font-semibold group-hover:text-blue-500 ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>{user.name}</div>
-                        <div className="text-xs text-slate-400">{t('login_btn', uiLanguage)}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </>
+            <div className="space-y-4">
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">{t('login_subtitle', uiLanguage)}</p>
+              {MOCK_USERS.map(user => (
+                <button key={user.id} onClick={() => handleUserSelect(user)} className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all group ${isDarkMode ? 'border-slate-700 hover:bg-slate-700 hover:border-blue-500' : 'border-slate-100 hover:bg-blue-50 hover:border-blue-500'}`}>
+                  <img src={user.avatar} className="w-12 h-12 rounded-full shadow-sm bg-slate-100 dark:bg-slate-600" alt={user.name} />
+                  <div className="text-left">
+                    <div className="font-bold text-lg group-hover:text-blue-600 transition-colors">{user.name}</div>
+                    <div className="text-xs text-slate-400">{t('login_btn', uiLanguage)}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
           ) : (
-            <>
-              <div className="flex items-center justify-start mb-6">
-                <button onClick={handleBackToUserSelect} className="text-slate-400 hover:text-slate-600 flex items-center gap-1 text-sm"><ArrowLeft className="w-4 h-4" /> {t('back', uiLanguage)}</button>
+            <form onSubmit={handlePasswordSubmit} className="space-y-6 animate-fade-in">
+              <button type="button" onClick={() => { setLoginStep('select_user'); setLoginError(false); }} className="flex items-center text-sm font-medium text-slate-400 hover:text-blue-500 gap-1 transition-colors"><ArrowLeft size={16}/> {t('back', uiLanguage)}</button>
+              <div className="text-center">
+                <img src={selectedLoginUser?.avatar} className="w-24 h-24 rounded-full mx-auto mb-4 border-4 border-blue-600/10" alt="User" />
+                <h2 className="text-xl font-bold">{selectedLoginUser?.name}</h2>
               </div>
-              <div className="mb-6 flex flex-col items-center">
-                 <img src={selectedLoginUser?.avatar} className={`w-20 h-20 rounded-full mb-3 ${isDarkMode ? 'bg-slate-700' : 'bg-slate-100'}`} />
-                 <h2 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>{selectedLoginUser?.name}</h2>
+              <div className="relative">
+                <input type="password" autoFocus value={passwordInput} onChange={e => setPasswordInput(e.target.value)} className={`w-full p-4 border-2 rounded-2xl outline-none transition-all font-medium text-center text-lg shadow-inner ${isDarkMode ? 'bg-slate-950 border-slate-700 text-white focus:border-blue-500' : 'bg-white border-slate-200 text-slate-900 focus:border-blue-500'} ${loginError ? 'border-red-500 ring-4 ring-red-500/10' : ''}`} placeholder={t('password_placeholder', uiLanguage)} />
+                {loginError && <p className="text-red-500 text-sm font-bold mt-3 animate-bounce">{t('wrong_password', uiLanguage)}</p>}
               </div>
-              <form onSubmit={handlePasswordSubmit} className="space-y-4">
-                 <div>
-                   <input type="password" autoFocus value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} className={`w-full p-3 border rounded-xl outline-none transition-all ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white focus:border-blue-500' : 'bg-slate-50 text-slate-900 border-slate-200 focus:border-blue-500'} ${loginError ? 'border-red-500' : ''}`} placeholder={t('password_placeholder', uiLanguage)}/>
-                   {loginError && <p className="text-red-500 text-xs mt-1 text-left">{t('wrong_password', uiLanguage)}</p>}
-                 </div>
-                 <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20">{t('login_btn', uiLanguage)}</button>
-              </form>
-            </>
+              <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-lg shadow-xl shadow-blue-600/30 hover:bg-blue-700 hover:-translate-y-0.5 transition-all">{t('login_btn', uiLanguage)}</button>
+            </form>
           )}
         </div>
       </div>
@@ -241,152 +218,93 @@ function App() {
   const { currency: baseCurrency, language } = currentUser.preferences;
 
   return (
-    <div className={`min-h-screen pb-20 md:pb-0 flex transition-colors duration-300 ${isDarkMode ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+    <div className={`min-h-screen pb-24 md:pb-0 flex transition-colors duration-300 ${isDarkMode ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       
-      {/* SIDEBAR */}
-      <aside className={`hidden md:flex flex-col w-64 border-r h-screen fixed top-0 left-0 z-10 transition-colors ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-        <div className="p-6 flex items-center gap-3">
-           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20"><Wallet className="text-white w-6 h-6" /></div>
-          <span className={`font-bold text-xl tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>SpeseSmart</span>
-        </div>
+      {/* SIDEBAR DESKTOP */}
+      <aside className={`hidden md:flex flex-col w-64 border-r fixed h-full z-10 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+        <div className="p-6 flex items-center gap-3 font-bold text-xl"><Wallet className="text-blue-600"/> SpeseSmart</div>
         <nav className="flex-1 px-4 space-y-2 mt-4">
-          <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-blue-600/10 text-blue-600' : 'text-slate-500 hover:bg-slate-700/50'}`}>
-            <LayoutDashboard className="w-5 h-5" /> {t('dashboard', language)}
-          </button>
-          <button onClick={() => setActiveTab('history')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'history' ? 'bg-blue-600/10 text-blue-600' : 'text-slate-500 hover:bg-slate-700/50'}`}>
-            <CreditCard className="w-5 h-5" /> {t('history', language)}
-          </button>
-          <button onClick={() => setShowSettingsModal(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors text-slate-500 hover:bg-slate-700/50">
-            <Settings className="w-5 h-5" /> {t('settings', language)}
-          </button>
+          <button onClick={() => { setActiveTab('dashboard'); setSelectedHistoryCategory(null); }} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium ${activeTab === 'dashboard' ? 'bg-blue-600/10 text-blue-600' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><LayoutDashboard/> {t('dashboard', language)}</button>
+          <button onClick={() => setActiveTab('history')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium ${activeTab === 'history' ? 'bg-blue-600/10 text-blue-600' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><CreditCard/> {t('history', language)}</button>
+          <button onClick={() => setShowSettingsModal(true)} className="w-full flex items-center gap-3 p-3 text-slate-500 hover:text-blue-500"><Settings/> {t('settings', language)}</button>
         </nav>
-        <div className={`p-4 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-100'}`}>
-           <div className="flex items-center justify-between mb-4 px-2">
-              <span className="text-xs font-semibold text-slate-500">THEME</span>
-              <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-1.5 rounded-lg transition-colors ${isDarkMode ? 'bg-slate-700 text-yellow-400' : 'bg-slate-100 text-slate-400'}`}>{isDarkMode ? <Sun className="w-4 h-4"/> : <Moon className="w-4 h-4"/>}</button>
-           </div>
-           <div className={`flex items-center gap-3 p-3 rounded-xl mb-3 ${isDarkMode ? 'bg-slate-700/50' : 'bg-slate-50'}`}>
-            <img src={currentUser.avatar} className={`w-8 h-8 rounded-full ${isDarkMode ? 'bg-slate-600' : 'bg-slate-100'}`} />
-            <div className="flex-1 overflow-hidden">
-              <p className={`text-sm font-bold truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>{currentUser.name}</p>
-              <p className="text-xs text-slate-400">{language.toUpperCase()} • {baseCurrency}</p>
-            </div>
-           </div>
-           <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 text-slate-500 hover:text-red-500 text-sm py-2"><LogOut className="w-4 h-4" /> {t('logout', language)}</button>
-        </div>
+        <button onClick={handleLogout} className="p-6 text-slate-400 flex items-center gap-2 hover:text-red-500"><LogOut size={18}/> {t('logout', language)}</button>
       </aside>
 
-      {/* MAIN CONTENT */}
+      {/* MAIN */}
       <main className="flex-1 md:ml-64 p-4 md:p-8 max-w-7xl mx-auto w-full">
-        {/* HEADER MOBILE */}
+        {/* MOBILE HEADER */}
         <div className="md:hidden flex justify-between items-center mb-6">
-          <div className="flex items-center gap-2">
-             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center"><Wallet className="text-white w-4 h-4" /></div>
-            <span className={`font-bold text-lg ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>SpeseSmart</span>
-          </div>
+          <div className="flex items-center gap-2 font-bold"><Wallet className="text-blue-600"/> SpeseSmart</div>
           <div className="flex gap-2">
-             <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2 rounded-full border ${isDarkMode ? 'bg-slate-800 border-slate-700 text-yellow-400' : 'bg-white border-slate-200 text-slate-600'}`}>{isDarkMode ? <Sun className="w-5 h-5"/> : <Moon className="w-5 h-5"/>}</button>
-             <button onClick={() => setShowSettingsModal(true)} className={`p-2 rounded-full border relative ${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-600'}`}>
-                <Settings className="w-5 h-5" />
-                {currentUser.telegramChatId && <div className="absolute top-1 right-1 w-2 h-2 bg-emerald-500 rounded-full border border-white"></div>}
-             </button>
-             <img src={currentUser.avatar} onClick={handleLogout} className={`w-10 h-10 rounded-full border ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-slate-100'}`} />
+             <img src={currentUser.avatar} className="w-10 h-10 rounded-full border-2 border-blue-600/20" alt="Avatar" />
+             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 border rounded-full">{isDarkMode ? <Sun size={20}/> : <Moon size={20}/>}</button>
           </div>
         </div>
 
-        {isLoadingData && <div className="fixed top-0 left-0 w-full h-1 bg-blue-900/20 overflow-hidden z-50"><div className="h-full bg-blue-600 animate-pulse w-full origin-left"></div></div>}
-
-        {/* PERIOD FILTER */}
-        {activeTab === 'dashboard' && (
-          <div className="mb-6 flex overflow-x-auto gap-2 pb-2 md:pb-0 no-scrollbar">
-             {[Period.DAILY, Period.WEEKLY, Period.MONTHLY, Period.ALL].map(p => (
-               <button
-                  key={p}
-                  onClick={() => setSelectedPeriod(p)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${selectedPeriod === p ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : (isDarkMode ? 'bg-slate-800 text-slate-400 hover:bg-slate-700' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200')}`}
-               >
-                  <Calendar className="w-4 h-4" />
-                  {p === Period.DAILY && (language === 'it' ? 'Oggi' : 'Today')}
-                  {p === Period.WEEKLY && (language === 'it' ? 'Questa Settimana' : 'This Week')}
-                  {p === Period.MONTHLY && (language === 'it' ? 'Questo Mese' : 'This Month')}
-                  {p === Period.ALL && (language === 'it' ? 'Tutto' : 'All Time')}
-               </button>
-             ))}
-          </div>
-        )}
-
-        {/* STATS CARDS */}
+        {/* TOP STATS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-6 rounded-2xl shadow-xl shadow-slate-900/10 relative overflow-hidden border border-slate-700">
-            <div className="relative z-10">
-              <p className="text-slate-400 text-sm font-medium mb-1">{t('balance', language)}</p>
-              <h2 className="text-3xl font-bold">{formatCurrency(stats.balance, baseCurrency)}</h2>
-            </div>
-            <div className="absolute top-0 right-0 p-4 opacity-10"><Wallet className="w-24 h-24" /></div>
+          <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl border border-slate-700 relative overflow-hidden">
+            <p className="text-slate-400 text-sm mb-1">{t('balance', language)}</p>
+            <h2 className="text-3xl font-bold">{formatCurrency(stats.balance, baseCurrency)}</h2>
+            <div className="absolute top-0 right-0 p-4 opacity-10"><Wallet size={80}/></div>
           </div>
-
           <div className={`p-6 rounded-2xl border shadow-sm flex items-center justify-between ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
-            <div>
-              <p className="text-slate-400 text-sm font-medium mb-1">{t('income', language)}</p>
-              <h2 className="text-2xl font-bold text-emerald-500">+{formatCurrency(stats.filteredIncome, baseCurrency)}</h2>
-            </div>
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-emerald-500 ${isDarkMode ? 'bg-emerald-500/10' : 'bg-emerald-100'}`}><TrendingUp className="w-6 h-6" /></div>
+            <div><p className="text-slate-400 text-sm mb-1">{t('income', language)}</p><h2 className="text-2xl font-bold text-emerald-500">+{formatCurrency(stats.filteredIncome, baseCurrency)}</h2></div>
+            <div className="p-3 rounded-full bg-emerald-500/10 text-emerald-500"><TrendingUp/></div>
           </div>
-
           <div className={`p-6 rounded-2xl border shadow-sm flex items-center justify-between ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
-            <div>
-              <p className="text-slate-400 text-sm font-medium mb-1">{t('expense', language)}</p>
-              <h2 className="text-2xl font-bold text-red-500">-{formatCurrency(stats.filteredExpense, baseCurrency)}</h2>
-            </div>
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-red-500 ${isDarkMode ? 'bg-red-500/10' : 'bg-red-100'}`}><TrendingDown className="w-6 h-6" /></div>
+            <div><p className="text-slate-400 text-sm mb-1">{t('expense', language)}</p><h2 className="text-2xl font-bold text-red-500">-{formatCurrency(stats.filteredExpense, baseCurrency)}</h2></div>
+            <div className="p-3 rounded-full bg-red-500/10 text-red-500"><TrendingDown/></div>
           </div>
         </div>
 
-        {/* AI INSIGHT */}
-        <div className="mb-6">
-          {!aiAnalysis ? (
-            <button onClick={handleAnalyze} disabled={isAnalyzing} className="w-full md:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-xl shadow-lg shadow-blue-500/20 font-medium flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
-              {isAnalyzing ? t('analyzing', language) : <><BrainCircuit className="w-5 h-5" /> {t('ai_analyze', language)}</>}
-            </button>
-          ) : (
-            <div className={`p-6 rounded-2xl border relative animate-fade-in ${isDarkMode ? 'bg-indigo-900/20 border-indigo-800' : 'bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-100'}`}>
-              <button onClick={() => setAiAnalysis(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
-              <div className="flex items-start gap-3">
-                 <div className={`p-2 rounded-lg shadow-sm text-indigo-500 ${isDarkMode ? 'bg-slate-800' : 'bg-white'}`}><BrainCircuit className="w-6 h-6" /></div>
-                 <div className={`prose prose-sm max-w-none ${isDarkMode ? 'prose-invert text-slate-300' : 'text-slate-700'}`}>
-                   <h3 className={`font-bold m-0 mb-2 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-800'}`}>Financial Coach Insight</h3>
-                   <ReactMarkdown>{aiAnalysis}</ReactMarkdown>
-                 </div>
-              </div>
-            </div>
-          )}
+        {/* FILTERS */}
+        <div className="mb-6 flex overflow-x-auto gap-3 pb-2 no-scrollbar items-center">
+          <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
+            {[Period.DAILY, Period.WEEKLY, Period.MONTHLY, Period.ALL].map(p => (
+              <button 
+                key={p} 
+                onClick={() => setSelectedPeriod(p)} 
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                  selectedPeriod === p 
+                    ? 'bg-blue-600 text-white shadow-lg' 
+                    : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                <Calendar size={14} /> {p}
+              </button>
+            ))}
+          </div>
+          <div className="h-10 w-px bg-slate-300 dark:bg-slate-700 mx-1"/>
+          <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
+            {['ALL', 'CARD', 'CASH'].map(m => (
+              <button 
+                key={m} 
+                onClick={() => setPaymentFilter(m as any)} 
+                className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${
+                  paymentFilter === m 
+                    ? 'bg-slate-800 text-white border border-slate-700' 
+                    : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* CONTENT */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6 animate-fade-in">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <BalanceTrendChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
-              <div className="grid grid-cols-1 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-6">
                 <ExpensePieChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
                 <IncomePieChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
               </div>
             </div>
-
-            {/* NEW: Payment Methods Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                 <PaymentMethodPieChart type={TransactionType.EXPENSE} transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
-                 <PaymentMethodPieChart type={TransactionType.INCOME} transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-               <CategoryBarChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className={`text-lg font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{t('recent_transactions', language)}</h3>
-                <button onClick={() => setActiveTab('history')} className="text-sm text-blue-500 font-medium hover:underline">{t('view_all', language)}</button>
-              </div>
+            <div className="pt-4">
+              <div className="flex justify-between items-center mb-4"><h3 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Ultimi Movimenti</h3><button onClick={() => setActiveTab('history')} className="text-blue-500 text-sm font-bold">Vedi Tutti</button></div>
               <TransactionList transactions={filteredTransactions.slice(0, 5)} onDelete={handleDeleteTransaction} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
             </div>
           </div>
@@ -394,29 +312,146 @@ function App() {
 
         {activeTab === 'history' && (
           <div className="animate-fade-in">
-             <h3 className={`text-xl font-bold mb-6 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{t('history', language)}</h3>
-             <TransactionList transactions={transactions} onDelete={handleDeleteTransaction} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+             <div className="flex items-center justify-between mb-4">
+               <h2 className={`text-3xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t('history', language)}</h2>
+             </div>
+             
+             {/* MENU DINAMICO */}
+             <div className="flex gap-8 mb-8 border-b dark:border-slate-800">
+                <button 
+                  onClick={() => { setHistorySubTab('total'); setSelectedHistoryCategory(null); }} 
+                  className={`relative pb-4 text-sm font-bold transition-all px-1 ${
+                    historySubTab === 'total' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'
+                  }`}
+                >
+                  Tutti i Movimenti
+                  {historySubTab === 'total' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full shadow-[0_-4px_10px_rgba(59,130,246,0.5)]" />}
+                </button>
+                <button 
+                  onClick={() => { 
+                    if (historySubTab === 'categories' && selectedHistoryCategory) {
+                      setSelectedHistoryCategory(null);
+                    } else {
+                      setHistorySubTab('categories');
+                    }
+                  }} 
+                  className={`relative pb-4 text-sm font-bold transition-all px-1 ${
+                    historySubTab === 'categories' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'
+                  }`}
+                >
+                  Per Categoria
+                  {historySubTab === 'categories' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full shadow-[0_-4px_10px_rgba(59,130,246,0.5)]" />}
+                </button>
+             </div>
+
+             {historySubTab === 'total' ? (
+                <div className="space-y-8 animate-fade-in">
+                   <button onClick={handleAnalyze} disabled={isAnalyzing} className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 rounded-2xl shadow-xl font-bold flex items-center justify-center gap-3 hover:scale-[1.01] transition-transform">
+                     {isAnalyzing ? <span className="animate-pulse">Analisi in corso...</span> : <><BrainCircuit/> Genera Analisi Finanziaria AI</>}
+                   </button>
+                   {aiAnalysis && (
+                     <div className="p-6 rounded-2xl border relative bg-indigo-50 dark:bg-slate-800 border-indigo-100 dark:border-slate-700 animate-fade-in">
+                       <button onClick={() => setAiAnalysis(null)} className="absolute top-4 right-4 text-slate-400 hover:text-red-500"><X size={20}/></button>
+                       <div className={`prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}><ReactMarkdown>{aiAnalysis}</ReactMarkdown></div>
+                     </div>
+                   )}
+
+                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <BalanceTrendChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+                      <PaymentMethodPieChart type={TransactionType.EXPENSE} transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+                   </div>
+                   <div className={`p-6 rounded-3xl shadow-sm border transition-colors ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                      <div className="flex items-center justify-between mb-6">
+                         <h3 className={`text-xl font-bold flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}><ListFilter size={20}/> {t('history', language)}</h3>
+                         <span className="text-xs font-black bg-blue-600/10 text-blue-600 px-3 py-1 rounded-full uppercase tracking-tighter">{filteredTransactions.length} Movimenti</span>
+                      </div>
+                      <TransactionList transactions={filteredTransactions} onDelete={handleDeleteTransaction} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+                   </div>
+                </div>
+             ) : (
+                <div className="animate-fade-in">
+                   {!selectedHistoryCategory ? (
+                      /* MENU SELEZIONE CATEGORIA - UNIQUE LIST */
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {uniqueCategories.map(cat => (
+                          <button 
+                            key={cat} 
+                            onClick={() => setSelectedHistoryCategory(cat)}
+                            className={`flex flex-col items-center justify-center p-6 rounded-3xl border-2 transition-all group ${
+                              isDarkMode 
+                              ? 'bg-slate-800 border-slate-700 hover:border-blue-500' 
+                              : 'bg-white border-slate-100 hover:border-blue-500 hover:shadow-xl'
+                            }`}
+                          >
+                            <div className="p-4 rounded-2xl bg-blue-600/10 text-blue-600 mb-4 group-hover:scale-110 transition-transform"><BarChart3 size={28}/></div>
+                            <span className={`font-black text-sm uppercase tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-900'}`}>{t(cat, language)}</span>
+                            <span className="text-[10px] mt-1 text-slate-400 font-bold">{transactions.filter(t => t.category === cat).length} Transazioni</span>
+                          </button>
+                        ))}
+                      </div>
+                   ) : (
+                      /* DETTAGLIO CATEGORIA - LA SELEZIONE SPARISCE */
+                      <div className="space-y-6 animate-fade-in">
+                          <button 
+                            onClick={() => setSelectedHistoryCategory(null)} 
+                            className="flex items-center gap-2 text-sm font-black text-blue-500 mb-2 hover:translate-x-[-4px] transition-transform"
+                          >
+                            <ChevronLeft size={18}/> TORNA ALLE CATEGORIE
+                          </button>
+
+                          <div className={`flex flex-col md:flex-row md:items-center justify-between p-6 rounded-3xl border shadow-xl transition-colors ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-100'}`}>
+                             <div className="flex items-center gap-5">
+                                <div className="p-4 rounded-2xl bg-blue-600 text-white shadow-xl shadow-blue-600/30"><BarChart3 size={28}/></div>
+                                <div>
+                                   <h3 className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t(selectedHistoryCategory, language)}</h3>
+                                   <p className={`text-sm font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>Report dettagliato categoria</p>
+                                </div>
+                             </div>
+                             <div className="mt-4 md:mt-0 md:text-right border-t md:border-t-0 pt-4 md:pt-0 border-slate-700">
+                                <p className={`text-[10px] font-black uppercase mb-1 tracking-widest ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Totale Periodo</p>
+                                <p className={`text-3xl font-black ${transactions.find(t => t.category === selectedHistoryCategory)?.type === TransactionType.INCOME ? 'text-emerald-400' : 'text-red-500'}`}>
+                                   {formatCurrency(categoryFilteredTransactions.reduce((s, tr) => s + convertCurrency(tr.amount, tr.currency, baseCurrency), 0), baseCurrency)}
+                                </p>
+                             </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                             <BalanceTrendChart transactions={categoryFilteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+                             <PaymentMethodPieChart 
+                                type={transactions.find(t => t.category === selectedHistoryCategory)?.type || TransactionType.EXPENSE} 
+                                transactions={categoryFilteredTransactions} 
+                                baseCurrency={baseCurrency} 
+                                language={language} 
+                                isDarkMode={isDarkMode} 
+                             />
+                          </div>
+
+                          <div className={`p-8 rounded-3xl shadow-sm border transition-colors ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                             <div className="flex justify-between items-center mb-8">
+                                <h4 className={`text-lg font-black flex items-center gap-2 uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>
+                                   <CreditCard size={20}/> Lista Movimenti
+                                </h4>
+                                <span className="text-xs font-black bg-blue-600/10 text-blue-600 px-4 py-1.5 rounded-full">{categoryFilteredTransactions.length} RISULTATI</span>
+                             </div>
+                             <TransactionList transactions={categoryFilteredTransactions} onDelete={handleDeleteTransaction} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+                          </div>
+                      </div>
+                   )}
+                </div>
+             )}
           </div>
         )}
       </main>
 
-      {/* MOBILE NAV & FAB */}
-      <div className={`md:hidden fixed bottom-0 left-0 w-full border-t flex justify-around p-3 z-40 pb-safe transition-colors ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1 ${activeTab === 'dashboard' ? 'text-blue-500' : 'text-slate-400'}`}>
-          <LayoutDashboard className="w-6 h-6" />
-          <span className="text-[10px] font-medium">{t('dashboard', language)}</span>
-        </button>
-        <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white rounded-full p-4 -mt-8 shadow-lg shadow-blue-600/30"><Plus className="w-6 h-6" /></button>
-        <button onClick={() => setActiveTab('history')} className={`flex flex-col items-center gap-1 ${activeTab === 'history' ? 'text-blue-500' : 'text-slate-400'}`}>
-          <CreditCard className="w-6 h-6" />
-          <span className="text-[10px] font-medium">{t('history', language)}</span>
-        </button>
+      {/* MOBILE NAV */}
+      <div className={`md:hidden fixed bottom-0 left-0 w-full border-t flex justify-around p-4 z-40 transition-colors ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
+        <button onClick={() => { setActiveTab('dashboard'); setSelectedHistoryCategory(null); }} className={`flex flex-col items-center gap-1 ${activeTab === 'dashboard' ? 'text-blue-500' : 'text-slate-400'}`}><LayoutDashboard/><span className="text-[10px] font-bold uppercase">Dashboard</span></button>
+        <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white rounded-full p-4 -mt-10 shadow-xl border-4 border-white dark:border-slate-900 transition-transform active:scale-90"><Plus size={28}/></button>
+        <button onClick={() => { setActiveTab('history'); setSelectedHistoryCategory(null); }} className={`flex flex-col items-center gap-1 ${activeTab === 'history' ? 'text-blue-500' : 'text-slate-400'}`}><CreditCard/><span className="text-[10px] font-bold uppercase">Movimenti</span></button>
       </div>
-      <button onClick={() => setShowAddModal(true)} className="hidden md:flex fixed bottom-10 right-10 bg-blue-600 text-white p-4 rounded-full shadow-2xl shadow-blue-600/40 hover:scale-105 transition-transform z-40 items-center gap-2 pr-6">
-        <Plus className="w-6 h-6" /> <span className="font-bold">{t('add', language)}</span>
-      </button>
 
-      {/* MODALS */}
+      <button onClick={() => setShowAddModal(true)} className="hidden md:flex fixed bottom-10 right-10 bg-blue-600 text-white p-5 rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all z-40"><Plus size={32}/></button>
+
       {showAddModal && <TransactionForm userId={currentUser.id} defaultCurrency={baseCurrency} language={language} onClose={() => setShowAddModal(false)} onAdd={handleAddTransaction} isDarkMode={isDarkMode} />}
       {showSettingsModal && <SettingsModal user={currentUser} onUpdate={handleUpdateProfile} onClose={() => setShowSettingsModal(false)} />}
     </div>

@@ -58,15 +58,20 @@ const CommonPieChart = ({ title, data, colors, baseCurrency, isDarkMode }: any) 
                 </Pie>
                 <Tooltip 
                   contentStyle={{ 
-                    borderRadius: '8px', 
+                    borderRadius: '12px', 
                     border: 'none', 
-                    backgroundColor: isDarkMode ? '#0f172a' : '#fff',
+                    backgroundColor: isDarkMode ? '#1e293b' : '#fff',
                     color: isDarkMode ? '#fff' : '#000',
-                    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' 
+                    boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.5)' 
                   }}
+                  itemStyle={{ color: isDarkMode ? '#f1f5f9' : '#1e293b' }}
                   formatter={(value: number) => formatCurrency(value, baseCurrency)} 
                 />
-                <Legend verticalAlign="bottom" height={36} />
+                <Legend 
+                  verticalAlign="bottom" 
+                  height={36} 
+                  formatter={(value) => <span style={{ color: isDarkMode ? '#94a3b8' : '#475569', fontSize: '11px', fontWeight: 'bold' }}>{value}</span>}
+                />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -88,7 +93,7 @@ export const ExpensePieChart: React.FC<ChartsProps> = ({ transactions, baseCurre
     .map(([name, value]) => ({
       name: t(name, language),
       value: value as number,
-      color: '' // Handled by parent
+      color: '' 
     }))
     .sort((a, b) => b.value - a.value);
 
@@ -121,7 +126,6 @@ export const BalanceTrendChart: React.FC<ChartsProps> = ({ transactions, baseCur
   const sorted = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const locale = getLocale(language);
 
-  // Aggregate by day
   const groupedData = sorted.reduce((acc, t) => {
     const dateKey = format(new Date(t.date), 'dd/MM', { locale });
     if (!acc[dateKey]) acc[dateKey] = { name: dateKey, income: 0, expense: 0, value: 0 };
@@ -134,7 +138,7 @@ export const BalanceTrendChart: React.FC<ChartsProps> = ({ transactions, baseCur
     return acc;
   }, {} as Record<string, ChartDataPoint>);
 
-  const data = Object.values(groupedData).slice(-7); // Last 7 days
+  const data = Object.values(groupedData).slice(-10); 
 
   if (data.length === 0) {
     return (
@@ -155,16 +159,17 @@ export const BalanceTrendChart: React.FC<ChartsProps> = ({ transactions, baseCur
             <YAxis axisLine={false} tickLine={false} tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 12}} />
             <Tooltip 
               contentStyle={{ 
-                borderRadius: '8px', 
+                borderRadius: '12px', 
                 border: 'none', 
-                backgroundColor: isDarkMode ? '#0f172a' : '#fff',
+                backgroundColor: isDarkMode ? '#1e293b' : '#fff',
                 color: isDarkMode ? '#fff' : '#000',
-                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' 
+                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.5)' 
               }}
+              itemStyle={{ color: isDarkMode ? '#f1f5f9' : '#1e293b' }}
               cursor={{fill: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}}
               formatter={(value: number) => formatCurrency(value, baseCurrency)}
             />
-            <Legend wrapperStyle={{ paddingTop: '20px' }}/>
+            <Legend wrapperStyle={{ paddingTop: '20px' }} formatter={(value) => <span style={{ color: isDarkMode ? '#94a3b8' : '#475569', fontSize: '11px', fontWeight: 'bold' }}>{value}</span>}/>
             <Bar dataKey="income" name={t('income', language)} fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
             <Bar dataKey="expense" name={t('expense', language)} fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={40} />
           </BarChart>
@@ -174,7 +179,6 @@ export const BalanceTrendChart: React.FC<ChartsProps> = ({ transactions, baseCur
   );
 };
 
-// --- CHART 4: CATEGORY BREAKDOWN ---
 export const CategoryBarChart: React.FC<ChartsProps> = ({ transactions, baseCurrency, language, isDarkMode }) => {
   const expenses = transactions.filter(t => t.type === TransactionType.EXPENSE);
   
@@ -191,7 +195,7 @@ export const CategoryBarChart: React.FC<ChartsProps> = ({ transactions, baseCurr
       color: EXPENSE_COLORS[index % EXPENSE_COLORS.length]
     }))
     .sort((a, b) => b.value - a.value)
-    .slice(0, 5); // Top 5
+    .slice(0, 5); 
 
   if (data.length === 0) return null;
 
@@ -213,12 +217,13 @@ export const CategoryBarChart: React.FC<ChartsProps> = ({ transactions, baseCurr
             />
             <Tooltip 
               contentStyle={{ 
-                borderRadius: '8px', 
+                borderRadius: '12px', 
                 border: 'none', 
-                backgroundColor: isDarkMode ? '#0f172a' : '#fff',
+                backgroundColor: isDarkMode ? '#1e293b' : '#fff',
                 color: isDarkMode ? '#fff' : '#000',
-                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' 
+                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.5)' 
               }}
+              itemStyle={{ color: isDarkMode ? '#f1f5f9' : '#1e293b' }}
               cursor={{fill: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}}
               formatter={(value: number) => formatCurrency(value, baseCurrency)}
             />
@@ -234,13 +239,12 @@ export const CategoryBarChart: React.FC<ChartsProps> = ({ transactions, baseCurr
   );
 };
 
-// --- CHART 5: PAYMENT METHOD PIE CHART (REUSABLE FOR INCOME/EXPENSE) ---
 export const PaymentMethodPieChart: React.FC<ChartsProps & { type: TransactionType }> = ({ transactions, baseCurrency, language, isDarkMode, type }) => {
     const filtered = transactions.filter(t => t.type === type);
     
     const dataMap = filtered.reduce((acc, curr) => {
       const convertedAmount = convertCurrency(curr.amount, curr.currency, baseCurrency);
-      const method = curr.paymentMethod || 'CARD'; // Default
+      const method = curr.paymentMethod || 'CARD'; 
       acc[method] = (acc[method] || 0) + convertedAmount;
       return acc;
     }, {} as Record<string, number>);
@@ -253,10 +257,9 @@ export const PaymentMethodPieChart: React.FC<ChartsProps & { type: TransactionTy
       }))
       .sort((a, b) => b.value - a.value);
 
-    // Green/Teal for Cash, Blue/Purple for Card
     const colors = type === TransactionType.INCOME 
-        ? ['#10b981', '#3b82f6'] // Emerald, Blue
-        : ['#f59e0b', '#6366f1']; // Amber, Indigo
+        ? ['#10b981', '#3b82f6'] 
+        : ['#f59e0b', '#6366f1']; 
     
     const title = type === TransactionType.INCOME ? t('chart_payment_income', language) : t('chart_payment_expense', language);
   

@@ -1,7 +1,8 @@
+
 import React, { useState } from 'react';
 import { User, Currency, Language } from '../types';
 import { t } from '../utils/translations';
-import { X, Check, Send, Lock } from 'lucide-react';
+import { X, Check, Send, Lock, User as UserIcon, Image as ImageIcon, Settings } from 'lucide-react';
 
 interface SettingsModalProps {
   user: User;
@@ -9,20 +10,31 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
+const AVATAR_PRESETS = [
+  'https://api.dicebear.com/7.x/avataaars/svg?seed=Matteo',
+  'https://api.dicebear.com/7.x/avataaars/svg?seed=Diana',
+  'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
+  'https://api.dicebear.com/7.x/avataaars/svg?seed=Sophie',
+  'https://api.dicebear.com/7.x/avataaars/svg?seed=Jack',
+  'https://api.dicebear.com/7.x/avataaars/svg?seed=Mimi',
+];
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({ user, onUpdate, onClose }) => {
   const [currency, setCurrency] = useState<Currency>(user.preferences.currency);
   const [language, setLanguage] = useState<Language>(user.preferences.language);
   const [telegramChatId, setTelegramChatId] = useState<string>(user.telegramChatId || '');
-  const [password, setPassword] = useState<string>(''); // For changing password
+  const [password, setPassword] = useState<string>('');
+  const [avatar, setAvatar] = useState<string>(user.avatar);
+  const [customAvatarUrl, setCustomAvatarUrl] = useState<string>('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     const updatedUser: User = {
         ...user,
+        avatar: customAvatarUrl.trim() || avatar,
         preferences: { currency, language },
         telegramChatId: telegramChatId.trim(),
-        // Only update password if user typed something new
         password: password.trim() ? password.trim() : user.password
     };
 
@@ -31,33 +43,65 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ user, onUpdate, on
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in max-h-[90vh] overflow-y-auto no-scrollbar">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in max-h-[90vh] overflow-y-auto no-scrollbar">
         <div className="p-6 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-10">
-          <h2 className="text-xl font-bold">{t('settings_title', language)}</h2>
-          <button onClick={onClose} className="text-slate-300 hover:text-white"><X className="w-5 h-5"/></button>
+          <h2 className="text-xl font-bold flex items-center gap-2"><Settings className="w-5 h-5" /> {t('settings_title', language)}</h2>
+          <button onClick={onClose} className="text-slate-300 hover:text-white p-1 hover:bg-slate-800 rounded-full transition-colors"><X className="w-6 h-6"/></button>
         </div>
         
         <form onSubmit={handleSubmit} className="p-6 space-y-8">
           
+          {/* Avatar Selection */}
+          <div>
+            <label className="block text-sm font-black text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+               <UserIcon className="w-4 h-4 text-blue-500" /> Foto Profilo
+            </label>
+            <div className="grid grid-cols-4 gap-3 mb-4">
+              {AVATAR_PRESETS.map(url => (
+                <button
+                  key={url}
+                  type="button"
+                  onClick={() => { setAvatar(url); setCustomAvatarUrl(''); }}
+                  className={`relative p-1 rounded-2xl border-2 transition-all ${
+                    avatar === url && !customAvatarUrl ? 'border-blue-500 ring-4 ring-blue-500/10' : 'border-transparent'
+                  }`}
+                >
+                  <img src={url} className="w-full aspect-square rounded-xl bg-slate-100 dark:bg-slate-800" alt="Preset" />
+                  {avatar === url && !customAvatarUrl && <div className="absolute -top-1 -right-1 bg-blue-500 text-white rounded-full p-0.5 shadow-lg"><Check size={10}/></div>}
+                </button>
+              ))}
+            </div>
+            <div className="relative">
+               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                 <ImageIcon className="h-4 w-4 text-slate-400" />
+               </div>
+               <input 
+                 type="text" 
+                 placeholder="O inserisci URL immagine personalizzata..."
+                 value={customAvatarUrl}
+                 onChange={e => setCustomAvatarUrl(e.target.value)}
+                 className="w-full pl-10 pr-3 py-2.5 text-xs bg-slate-50 dark:bg-slate-800 border dark:border-slate-700 rounded-xl outline-none focus:border-blue-500 transition-all text-slate-700 dark:text-slate-300"
+               />
+            </div>
+          </div>
+
           {/* Language Selection */}
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">{t('pref_language', language)}</label>
+            <label className="block text-sm font-black text-slate-700 dark:text-slate-300 mb-3">{t('pref_language', language)}</label>
             <div className="grid grid-cols-3 gap-2">
               {(['it', 'en', 'pl'] as Language[]).map(lang => (
                 <button
                   key={lang}
                   type="button"
                   onClick={() => setLanguage(lang)}
-                  className={`py-2 px-3 rounded-lg border text-sm font-medium flex items-center justify-center gap-2 transition-all ${
+                  className={`py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all ${
                     language === lang 
-                      ? 'bg-blue-50 border-blue-500 text-blue-700 ring-1 ring-blue-500' 
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                      ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/30' 
+                      : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }`}
                 >
-                  {lang === 'it' && 'ITA'}
-                  {lang === 'en' && 'ENG'}
-                  {lang === 'pl' && 'POL'}
+                  {lang.toUpperCase()}
                   {language === lang && <Check className="w-3 h-3" />}
                 </button>
               ))}
@@ -66,18 +110,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ user, onUpdate, on
 
           {/* Currency Selection */}
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">{t('pref_currency', language)}</label>
-            <p className="text-xs text-slate-500 mb-3">{t('pref_currency_desc', language)}</p>
+            <label className="block text-sm font-black text-slate-700 dark:text-slate-300 mb-1">{t('pref_currency', language)}</label>
+            <p className="text-[10px] text-slate-400 mb-3 uppercase tracking-wider">{t('pref_currency_desc', language)}</p>
             <div className="grid grid-cols-3 gap-2">
               {(['EUR', 'USD', 'PLN'] as Currency[]).map(curr => (
                 <button
                   key={curr}
                   type="button"
                   onClick={() => setCurrency(curr)}
-                  className={`py-2 px-3 rounded-lg border text-sm font-medium flex items-center justify-center gap-2 transition-all ${
+                  className={`py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all ${
                     currency === curr 
-                      ? 'bg-emerald-50 border-emerald-500 text-emerald-700 ring-1 ring-emerald-500' 
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-600/30' 
+                      : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }`}
                 >
                   {curr}
@@ -87,22 +131,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ user, onUpdate, on
             </div>
           </div>
 
-          <hr className="border-slate-100" />
+          <hr className="border-slate-100 dark:border-slate-800" />
 
           {/* Telegram Integration */}
           <div>
              <div className="flex items-center gap-2 mb-2">
                 <Send className="w-4 h-4 text-blue-500" />
-                <label className="text-sm font-semibold text-slate-700">{t('telegram_title', language)}</label>
+                <label className="text-sm font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight">{t('telegram_title', language)}</label>
              </div>
-             <p className="text-xs text-slate-500 mb-3">{t('telegram_desc', language)}</p>
+             <p className="text-[10px] text-slate-400 mb-3 leading-relaxed">{t('telegram_desc', language)}</p>
              <div>
-                <label className="block text-xs text-slate-500 font-medium mb-1">{t('telegram_chat_id', language)}</label>
                 <input 
                   type="text" 
                   value={telegramChatId}
                   onChange={(e) => setTelegramChatId(e.target.value)}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm"
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm dark:text-slate-300"
                   placeholder="123456789"
                 />
              </div>
@@ -111,35 +154,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ user, onUpdate, on
           {/* Security */}
           <div>
              <div className="flex items-center gap-2 mb-2">
-                <Lock className="w-4 h-4 text-slate-700" />
-                <label className="text-sm font-semibold text-slate-700">{t('security_title', language)}</label>
+                <Lock className="w-4 h-4 text-slate-700 dark:text-slate-400" />
+                <label className="text-sm font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight">{t('security_title', language)}</label>
              </div>
              <div>
-                <label className="block text-xs text-slate-500 font-medium mb-1">{t('new_password', language)}</label>
                 <input 
                   type="password" 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="••••••••"
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none dark:text-slate-300"
+                  placeholder="Nuova Password..."
                 />
-                <p className="text-[10px] text-slate-400 mt-1">Leave empty to keep current password.</p>
+                <p className="text-[10px] text-slate-400 mt-2 italic">Lascia vuoto per mantenere quella attuale.</p>
              </div>
           </div>
 
-          <div className="flex gap-3 pt-4 border-t border-slate-100">
+          <div className="flex gap-3 pt-6 border-t dark:border-slate-800">
             <button 
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 text-slate-600 font-medium hover:bg-slate-50 rounded-xl transition-colors"
+              className="flex-1 py-3 text-sm font-black text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors"
             >
-              {t('cancel', language)}
+              {t('cancel', language).toUpperCase()}
             </button>
             <button 
               type="submit" 
-              className="flex-1 py-2.5 bg-slate-900 text-white font-medium rounded-xl hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/10"
+              className="flex-1 py-3 bg-blue-600 text-white text-sm font-black rounded-2xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-600/30"
             >
-              {t('save', language)}
+              {t('save', language).toUpperCase()}
             </button>
           </div>
 
