@@ -3,31 +3,53 @@ import { GoogleGenAI } from "@google/genai";
 import { Transaction, TransactionType, Language, Currency } from "../types.ts";
 
 const getApiKey = () => {
-  // 1. Prova a leggere da process.env (Node o build time replacement) in modo sicuro
+  let key = "";
+
+  // 1. Vite / Modern Browsers (import.meta.env) - Metodo standard per Vercel
   try {
-    if (typeof process !== 'undefined' && process.env?.API_KEY) {
-      return process.env.API_KEY;
+    // @ts-ignore: import.meta exists in modern browsers/Vite
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      if (import.meta.env.VITE_API_KEY) key = import.meta.env.VITE_API_KEY;
+      // @ts-ignore
+      else if (import.meta.env.API_KEY) key = import.meta.env.API_KEY;
     }
   } catch (e) {
-    // Ignora errori di ReferenceError se process non esiste
+    // Ignore error if import.meta is not defined
   }
 
-  // 2. Fallback su window.process (il polyfill definito in index.html)
-  try {
-    if (typeof window !== 'undefined' && (window as any).process?.env?.API_KEY) {
-      return (window as any).process.env.API_KEY;
+  // 2. Node.js / Webpack fallback (process.env)
+  if (!key) {
+    try {
+      if (typeof process !== 'undefined' && process.env) {
+        if (process.env.VITE_API_KEY) key = process.env.VITE_API_KEY;
+        else if (process.env.API_KEY) key = process.env.API_KEY;
+      }
+    } catch (e) {
+      // Ignore reference errors
     }
-  } catch (e) {
-    console.warn("Error reading API key from window:", e);
   }
 
-  return "";
+  // 3. Window fallback (Inject script)
+  if (!key) {
+    try {
+      if (typeof window !== 'undefined' && (window as any).process?.env) {
+        const winEnv = (window as any).process.env;
+        if (winEnv.VITE_API_KEY) key = winEnv.VITE_API_KEY;
+        else if (winEnv.API_KEY) key = winEnv.API_KEY;
+      }
+    } catch (e) {
+      console.warn("Error reading API key from window:", e);
+    }
+  }
+
+  return key;
 };
 
 const getAI = () => {
   const apiKey = getApiKey();
   if (!apiKey || apiKey === "") {
-    console.warn("API Key mancante o non trovata.");
+    console.warn("API Key mancante o non trovata. Assicurati di aver impostato VITE_API_KEY su Vercel.");
     return null;
   }
   return new GoogleGenAI({ apiKey });
