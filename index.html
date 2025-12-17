@@ -9,8 +9,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
-      // Shim per prevenire ReferenceError: process is not defined nel browser
-      window.process = { env: { API_KEY: "" } };
+      // Shim robusto per prevenire ReferenceError: process is not defined
+      window.process = window.process || { env: {} };
+      window.process.env = window.process.env || {};
+      // Non sovrascrivere API_KEY se è già stata iniettata dall'ambiente
+      if (!window.process.env.API_KEY) {
+        window.process.env.API_KEY = "";
+      }
     </script>
     <style>
       body {
@@ -44,13 +49,13 @@
     "date-fns": "https://esm.sh/date-fns@^4.1.0",
     "react-markdown": "https://esm.sh/react-markdown@^10.1.0",
     "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
-    "path": "https://esm.sh/path@^0.12.7",
     "express": "https://esm.sh/express@^5.2.1",
-    "url": "https://esm.sh/url@^0.11.4",
     "cors": "https://esm.sh/cors@^2.8.5",
-    "crypto": "https://esm.sh/crypto@^1.0.1",
+    "node-telegram-bot-api": "https://esm.sh/node-telegram-bot-api@^0.67.0",
     "mongoose": "https://esm.sh/mongoose@^9.0.1",
-    "node-telegram-bot-api": "https://esm.sh/node-telegram-bot-api@^0.67.0"
+    "crypto": "https://esm.sh/crypto@^1.0.1",
+    "path": "https://esm.sh/path@^0.12.7",
+    "url": "https://esm.sh/url@^0.11.4"
   }
 }
 </script>

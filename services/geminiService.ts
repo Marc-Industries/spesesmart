@@ -1,12 +1,22 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { Transaction, TransactionType, Language, Currency } from "../types";
+import { Transaction, TransactionType, Language, Currency } from "../types.ts";
 
-// Always use the standard initialization with the API_KEY from process.env
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Helper per ottenere l'istanza AI in modo sicuro
+const getAI = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    console.warn("API_KEY non trovata in process.env");
+    return null;
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 // Smart Categorization: Guesses details from a simple string
 export const parseTransactionText = async (text: string, userLang: Language = 'it'): Promise<Partial<Transaction> | null> => {
+  const ai = getAI();
+  if (!ai) return null;
+
   try {
     const prompt = `
       Analyze the following text describing a financial transaction and return a JSON object with:
@@ -21,7 +31,6 @@ export const parseTransactionText = async (text: string, userLang: Language = 'i
       Respond ONLY with the JSON.
     `;
 
-    // Use 'gemini-3-flash-preview' for basic text tasks
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
@@ -30,7 +39,6 @@ export const parseTransactionText = async (text: string, userLang: Language = 'i
       }
     });
 
-    // Access the text property directly
     const jsonText = response.text;
     if (!jsonText) return null;
     return JSON.parse(jsonText);
@@ -42,6 +50,9 @@ export const parseTransactionText = async (text: string, userLang: Language = 'i
 
 // Financial Insight
 export const analyzeFinances = async (transactions: Transaction[], language: Language, baseCurrency: Currency): Promise<string> => {
+  const ai = getAI();
+  if (!ai) return "Configurazione AI non completata.";
+
   const simpleData = transactions.slice(0, 50).map(t => ({
     d: t.date.split('T')[0],
     a: t.amount,
@@ -62,16 +73,14 @@ export const analyzeFinances = async (transactions: Transaction[], language: Lan
       Data: ${JSON.stringify(simpleData)}
     `;
 
-    // Use 'gemini-3-flash-preview' for basic text tasks
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
     });
 
-    // Access the text property directly
-    return response.text || "Analysis generation failed.";
+    return response.text || "Impossibile generare l'analisi.";
   } catch (error) {
     console.error("Gemini analysis error:", error);
-    return "Error generating analysis.";
+    return "Errore nella generazione dell'analisi finanziaria.";
   }
 };
