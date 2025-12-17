@@ -1,3 +1,4 @@
+
 export enum TransactionType {
   INCOME = 'INCOME',
   EXPENSE = 'EXPENSE',
@@ -12,6 +13,7 @@ export enum Period {
 
 export type Currency = 'EUR' | 'USD' | 'PLN';
 export type Language = 'it' | 'en' | 'pl';
+export type PaymentMethod = 'CASH' | 'CARD';
 
 export interface UserPreferences {
   currency: Currency;
@@ -22,7 +24,7 @@ export interface User {
   id: string;
   name: string;
   avatar: string;
-  password?: string; // Optional for migration, but required in logic
+  password?: string;
   telegramChatId?: string;
   preferences: UserPreferences;
 }
@@ -36,6 +38,7 @@ export interface Transaction {
   category: string;
   description: string;
   type: TransactionType;
+  paymentMethod?: PaymentMethod; // New field
 }
 
 export interface ChartDataPoint {

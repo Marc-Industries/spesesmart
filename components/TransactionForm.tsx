@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { TransactionType, Currency, Language } from '../types';
+
+import React, { useState } from 'react';
+import { TransactionType, Currency, Language, PaymentMethod } from '../types';
 import { CATEGORIES } from '../constants';
 import { parseTransactionText } from '../services/geminiService';
-import { Sparkles, Plus, Loader2 } from 'lucide-react';
+import { Sparkles, Plus, Loader2, CreditCard, Banknote } from 'lucide-react';
 import { t } from '../utils/translations';
 
 interface TransactionFormProps {
@@ -21,6 +22,7 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
   const [category, setCategory] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CARD');
   
   const [magicInput, setMagicInput] = useState<string>('');
   const [isMagicLoading, setIsMagicLoading] = useState(false);
@@ -36,6 +38,11 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
         if (result.description) setDescription(result.description);
         if (result.type) setType(result.type as TransactionType);
         if (result.currency) setCurrency(result.currency as Currency);
+        
+        // Auto-detect payment method for Mance (Tips)
+        if (result.category === 'Mance') {
+             setPaymentMethod('CASH');
+        }
       }
     } catch (e) {
       alert("AI Error: Could not parse text.");
@@ -56,7 +63,8 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
       currency,
       category,
       description,
-      type
+      type,
+      paymentMethod
     });
     onClose();
   };
@@ -87,6 +95,7 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
                 className={`flex-1 text-sm p-2 border rounded-lg focus:outline-none focus:border-indigo-500 ${isDarkMode ? 'bg-slate-800 border-slate-600 text-white placeholder-slate-500' : 'bg-white border-indigo-200 placeholder-slate-400'}`}
               />
               <button 
+                type="button" // Important: type button to prevent submit
                 onClick={handleMagicFill}
                 disabled={isMagicLoading || !magicInput}
                 className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
@@ -142,15 +151,28 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
               </div>
             </div>
             
-            <div>
-              <label className="block text-xs text-slate-500 font-medium mb-1">{t('date', language)}</label>
-              <input 
-                  type="date" 
-                  required
-                  value={date}
-                  onChange={e => setDate(e.target.value)}
-                  className={inputClass}
-                />
+            <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-1">
+                    <label className="block text-xs text-slate-500 font-medium mb-1">{t('date', language)}</label>
+                    <input 
+                        type="date" 
+                        required
+                        value={date}
+                        onChange={e => setDate(e.target.value)}
+                        className={inputClass}
+                        />
+                </div>
+                <div className="col-span-1">
+                    <label className="block text-xs text-slate-500 font-medium mb-1">{t('payment_method', language)}</label>
+                    <div className="flex gap-2">
+                        <button type="button" onClick={() => setPaymentMethod('CARD')} className={`flex-1 p-2 rounded-lg border flex items-center justify-center ${paymentMethod === 'CARD' ? 'bg-blue-50 border-blue-500 text-blue-600' : (isDarkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-50')}`}>
+                            <CreditCard className="w-4 h-4" />
+                        </button>
+                        <button type="button" onClick={() => setPaymentMethod('CASH')} className={`flex-1 p-2 rounded-lg border flex items-center justify-center ${paymentMethod === 'CASH' ? 'bg-emerald-50 border-emerald-500 text-emerald-600' : (isDarkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-50')}`}>
+                            <Banknote className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div>

@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { Transaction, TransactionType, Language, Currency } from "../types";
 
@@ -17,11 +18,11 @@ export const parseTransactionText = async (text: string, userLang: Language = 'i
   try {
     const prompt = `
       Analyze the following text describing a financial transaction and return a JSON object with:
-      - amount (number)
-      - currency (detect symbol or code, return 'EUR', 'USD', or 'PLN'. Default to 'EUR' if unsure)
-      - category (choose from standard categories like: Alimentari, Casa, Trasporti, Svago, Salute, Ristoranti, Shopping, Altro, Stipendio, Regali)
-      - type (INCOME or EXPENSE)
-      - description (clean short text)
+      - amount (number): Convert commas to dots (e.g. 4,10 -> 4.10).
+      - currency: Detect symbol (€, $, zł) or words (euro, eur, zloty, usd). Default 'EUR'.
+      - category: Choose strictly from: [Alimentari, Casa, Trasporti, Svago, Salute, Ristoranti, Shopping, Altro, Stipendio, Regali, Mance].
+      - type: INCOME or EXPENSE. (Note: 'Mance', 'Stipendio' are INCOME).
+      - description: Clean short text.
       
       Text: "${text}"
       
@@ -45,12 +46,11 @@ export const parseTransactionText = async (text: string, userLang: Language = 'i
   }
 };
 
-// Financial Insight: Analyzes the user's transaction history
+// Financial Insight
 export const analyzeFinances = async (transactions: Transaction[], language: Language, baseCurrency: Currency): Promise<string> => {
   const ai = getAIClient();
   if (!ai) return "API Key mancante. Impossibile generare l'analisi.";
 
-  // Simplify data to save tokens
   const simpleData = transactions.slice(0, 50).map(t => ({
     d: t.date.split('T')[0],
     a: t.amount,
@@ -61,12 +61,12 @@ export const analyzeFinances = async (transactions: Transaction[], language: Lan
 
   try {
     const prompt = `
-      You are an expert financial advisor. Analyze the following transactions (JSON) for a user.
-      User's base currency is ${baseCurrency}. 
+      You are an expert financial advisor. Analyze the following transactions (JSON).
+      Base currency: ${baseCurrency}. 
       
-      Provide a short summary (max 150 words) of their financial status, highlighting spending trends and savings tips.
-      IMPORTANT: Output the response in the language code: "${language}".
-      Use markdown formatting.
+      Provide a short summary (max 150 words) highlighting spending trends.
+      IMPORTANT: Output in language code: "${language}".
+      Use markdown.
       
       Data: ${JSON.stringify(simpleData)}
     `;

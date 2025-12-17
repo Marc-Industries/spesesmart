@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LogOut, Plus, LayoutDashboard, CreditCard, Wallet, TrendingUp, TrendingDown,
@@ -7,7 +8,7 @@ import { Transaction, User, TransactionType, Language, Period } from './types';
 import { MOCK_USERS } from './constants';
 import { getTransactions, addTransaction, deleteTransaction, getUserProfile, updateUserProfile } from './services/dataService';
 import { analyzeFinances } from './services/geminiService';
-import { ExpensePieChart, BalanceTrendChart, CategoryBarChart } from './components/Charts';
+import { ExpensePieChart, IncomePieChart, BalanceTrendChart, CategoryBarChart, PaymentMethodPieChart } from './components/Charts';
 import { TransactionForm } from './components/TransactionForm';
 import { TransactionList } from './components/TransactionList';
 import { SettingsModal } from './components/SettingsModal';
@@ -366,8 +367,18 @@ function App() {
           <div className="space-y-6 animate-fade-in">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <BalanceTrendChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
-              <ExpensePieChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+              <div className="grid grid-cols-1 gap-6">
+                <ExpensePieChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+                <IncomePieChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+              </div>
             </div>
+
+            {/* NEW: Payment Methods Charts Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                 <PaymentMethodPieChart type={TransactionType.EXPENSE} transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+                 <PaymentMethodPieChart type={TransactionType.INCOME} transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                <CategoryBarChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
             </div>
