@@ -38,7 +38,7 @@ export interface Transaction {
   category: string;
   description: string;
   type: TransactionType;
-  paymentMethod?: PaymentMethod; // New field
+  paymentMethod: PaymentMethod; // Obbligatorio
 }
 
 export interface ChartDataPoint {

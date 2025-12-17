@@ -2,85 +2,72 @@
 import { GoogleGenAI } from "@google/genai";
 import { Transaction, TransactionType, Language, Currency } from "../types.ts";
 
-// Helper per ottenere l'istanza AI in modo sicuro
 const getAI = () => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    console.warn("API_KEY non trovata in process.env");
-    return null;
-  }
+  if (!apiKey || apiKey === "") return null;
   return new GoogleGenAI({ apiKey });
 };
 
-// Smart Categorization: Guesses details from a simple string
 export const parseTransactionText = async (text: string, userLang: Language = 'it'): Promise<Partial<Transaction> | null> => {
   const ai = getAI();
   if (!ai) return null;
 
   try {
     const prompt = `
-      Analyze the following text describing a financial transaction and return a JSON object with:
-      - amount (number): Convert commas to dots (e.g. 4,10 -> 4.10).
-      - currency: Detect symbol (€, $, zł) or words (euro, eur, zloty, usd). Default 'EUR'.
-      - category: Choose strictly from: [Alimentari, Casa, Trasporti, Svago, Salute, Ristoranti, Shopping, Altro, Stipendio, Regali, Mance].
-      - type: INCOME or EXPENSE. (Note: 'Mance', 'Stipendio' are INCOME).
-      - description: Clean short text.
-      
-      Text: "${text}"
-      
-      Respond ONLY with the JSON.
+      Analizza la seguente spesa/entrata: "${text}".
+      Restituisci ESCLUSIVAMENTE un oggetto JSON con questi campi:
+      {
+        "amount": numero (usa il punto per decimali),
+        "currency": "EUR" | "USD" | "PLN",
+        "category": "Alimentari" | "Casa" | "Trasporti" | "Svago" | "Salute" | "Ristoranti" | "Shopping" | "Altro" | "Stipendio" | "Regali" | "Mance",
+        "type": "INCOME" (se stipendio, regali, mance) o "EXPENSE" (tutto il resto),
+        "description": "breve descrizione",
+        "paymentMethod": "CASH" o "CARD"
+      }
+
+      REGOLE PER IL METODO DI PAGAMENTO:
+      - Imposta "CASH" se l'utente scrive "contanti", "soldi", "mancia", "a mano", "monete" o se la spesa è piccola (es. caffè, giornale) e non specifica altro.
+      - Imposta "CARD" se scrive "carta", "bancomat", "online", "amazon", "apple pay" o se la spesa è grande e non specifica.
+      - Se incerto, usa "CARD".
     `;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
-      config: {
-        responseMimeType: "application/json"
-      }
+      config: { responseMimeType: "application/json" }
     });
 
-    const jsonText = response.text;
-    if (!jsonText) return null;
-    return JSON.parse(jsonText);
+    return JSON.parse(response.text);
   } catch (error) {
-    console.error("Gemini parsing error:", error);
+    console.error("Errore AI Smart Fill:", error);
     return null;
   }
 };
 
-// Financial Insight
 export const analyzeFinances = async (transactions: Transaction[], language: Language, baseCurrency: Currency): Promise<string> => {
   const ai = getAI();
-  if (!ai) return "Configurazione AI non completata.";
+  if (!ai) return "Configurazione API non valida.";
 
-  const simpleData = transactions.slice(0, 50).map(t => ({
-    d: t.date.split('T')[0],
-    a: t.amount,
-    c: t.currency,
+  const dataSummary = transactions.slice(0, 40).map(t => ({
+    date: t.date.split('T')[0],
+    amount: t.amount,
+    currency: t.currency,
     cat: t.category,
-    t: t.type
+    type: t.type,
+    method: t.paymentMethod
   }));
 
   try {
     const prompt = `
-      You are an expert financial advisor. Analyze the following transactions (JSON).
-      Base currency: ${baseCurrency}. 
-      
-      Provide a short summary (max 150 words) highlighting spending trends.
-      IMPORTANT: Output in language code: "${language}".
-      Use markdown.
-      
-      Data: ${JSON.stringify(simpleData)}
+      Analizza questi dati finanziari: ${JSON.stringify(dataSummary)}. Valuta base: ${baseCurrency}.
+      Fornisci un report breve e motivante in lingua "${language}". Usa Markdown.
     `;
-
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: prompt,
+      contents: prompt
     });
-
-    return response.text || "Impossibile generare l'analisi.";
+    return response.text || "";
   } catch (error) {
-    console.error("Gemini analysis error:", error);
-    return "Errore nella generazione dell'analisi finanziaria.";
+    return "Errore nell'analisi.";
   }
 };

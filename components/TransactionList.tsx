@@ -5,7 +5,7 @@ import { format } from 'date-fns';
 import { it, enUS } from 'date-fns/locale';
 import { 
   ArrowDownLeft, ArrowUpRight, Trash2, ShoppingBag, Home, Car, Coffee, 
-  Heart, Utensils, ShoppingCart, DollarSign, Briefcase, CreditCard, Banknote 
+  Heart, Utensils, ShoppingCart, DollarSign, Briefcase, CreditCard, Banknote
 } from 'lucide-react';
 import { convertCurrency, formatCurrency } from '../utils/currency';
 import { t } from '../utils/translations';
@@ -59,6 +59,8 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions, 
         const converted = convertCurrency(tr.amount, tr.currency, baseCurrency);
         const isDifferentCurrency = tr.currency !== baseCurrency;
         const isIncome = tr.type === TransactionType.INCOME;
+        
+        // Il metodo è garantito dalla sanificazione in dataService
         const isCash = tr.paymentMethod === 'CASH';
 
         return (
@@ -68,15 +70,24 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions, 
                 {getIcon(tr.category)}
               </div>
               <div className="overflow-hidden">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 mb-0.5">
                    <p className={`font-semibold truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{t(tr.category, language)}</p>
-                   <span className={`p-1 rounded-md text-[10px] ${isDarkMode ? 'bg-slate-700 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
-                      {isCash ? <Banknote className="w-3 h-3" /> : <CreditCard className="w-3 h-3" />}
+                   {/* Tag Metodo di Pagamento - Sempre visibile, mai ND */}
+                   <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase transition-colors ${
+                     isCash 
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' 
+                      : 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400'
+                   }`}>
+                      {isCash ? (
+                        <><Banknote className="w-3 h-3" /> {t('cash', language)}</>
+                      ) : (
+                        <><CreditCard className="w-3 h-3" /> {t('card', language)}</>
+                      )}
                    </span>
                 </div>
                 <p className="text-xs text-slate-500 flex items-center gap-2">
                   <span className="whitespace-nowrap">{format(new Date(tr.date), 'dd MMM yyyy', { locale: getLocale(language) })}</span>
-                  {tr.description && <span className="text-slate-400 truncate">• {tr.description}</span>}
+                  {tr.description && <span className="text-slate-400 truncate max-w-[120px] md:max-w-[200px]">• {tr.description}</span>}
                 </p>
               </div>
             </div>

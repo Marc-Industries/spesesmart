@@ -62,7 +62,7 @@ function App() {
       loadData(currentUser.id); 
       interval = window.setInterval(() => {
         loadData(currentUser.id, true); 
-      }, 10000); 
+      }, 15000); 
     }
     return () => clearInterval(interval);
   }, [currentUser]);
@@ -70,7 +70,11 @@ function App() {
   const loadData = async (userId: string, silent = false) => {
     if (!silent) setIsLoadingData(true);
     const data = await getTransactions(userId);
-    if (data) setTransactions(data);
+    if (data) {
+        // Ordiniamo per data decrescente
+        const sorted = data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setTransactions(sorted);
+    }
     if (!silent) setIsLoadingData(false);
   };
 
@@ -78,8 +82,8 @@ function App() {
   const filteredTransactions = useMemo(() => {
     const now = new Date();
     return transactions.filter(t => {
-      // 1. Payment Method Filter - Default a 'CARD' se non presente per evitare sparizioni
-      const method = t.paymentMethod || 'CARD';
+      // 1. Payment Method Filter
+      const method = t.paymentMethod;
       if (paymentFilter !== 'ALL' && method !== paymentFilter) return false;
 
       // 2. Period Filter
@@ -97,12 +101,10 @@ function App() {
     });
   }, [transactions, selectedPeriod, paymentFilter]);
 
-  // Lista categorie UNICA per il menu
   const uniqueCategories = useMemo(() => {
     return Array.from(new Set([...CATEGORIES.EXPENSE, ...CATEGORIES.INCOME]));
   }, []);
 
-  // Filtro specifico per dettaglio categoria
   const categoryFilteredTransactions = useMemo(() => {
     if (selectedHistoryCategory) {
       return filteredTransactions.filter(t => t.category === selectedHistoryCategory);
@@ -159,8 +161,20 @@ function App() {
 
   const handleLogout = () => { setCurrentUser(null); setTransactions([]); setAiAnalysis(null); setLoginStep('select_user'); };
   const handleUpdateProfile = async (u: User) => { setCurrentUser(u); await updateUserProfile(u); };
-  const handleAddTransaction = async (t: Transaction) => { await addTransaction(t); loadData(currentUser!.id, true); };
-  const handleDeleteTransaction = async (id: string) => { if (window.confirm("Sicuro?")) { await deleteTransaction(id); loadData(currentUser!.id, true); } };
+  
+  const handleAddTransaction = async (t: Transaction) => { 
+    await addTransaction(t); 
+    // Aggiorniamo lo stato locale immediatamente per UX istantanea
+    setTransactions(prev => [t, ...prev]);
+  };
+
+  const handleDeleteTransaction = async (id: string) => { 
+    if (window.confirm("Sicuro?")) { 
+      await deleteTransaction(id); 
+      setTransactions(prev => prev.filter(t => t.id !== id));
+    } 
+  };
+  
   const handleAnalyze = async () => { if (!currentUser) return; setIsAnalyzing(true); const result = await analyzeFinances(transactions, currentUser.preferences.language, currentUser.preferences.currency); setAiAnalysis(result); setIsAnalyzing(false); };
 
   if (!currentUser) {
