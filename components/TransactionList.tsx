@@ -1,4 +1,3 @@
-
 import React, { useMemo } from 'react';
 import { Transaction, TransactionType, Currency, Language } from '../types';
 import { format } from 'date-fns';
@@ -143,7 +142,8 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions, 
   if (groupByMonth && groupedTransactions) {
     return (
       <div className="space-y-8">
-        {Object.entries(groupedTransactions).map(([month, data]) => (
+        {/* Fix: Explicitly cast Object.entries to the correct type to resolve 'unknown' type errors for data.income, data.expense, and data.transactions */}
+        {(Object.entries(groupedTransactions) as [string, { transactions: Transaction[], income: number, expense: number }][]).map(([month, data]) => (
           <div key={month} className="animate-fade-in">
             <div className={`flex items-center justify-between mb-4 pb-2 border-b ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
               <div className="flex items-center gap-2">
