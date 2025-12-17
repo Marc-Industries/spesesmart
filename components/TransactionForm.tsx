@@ -1,9 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { TransactionType, Currency, Language, PaymentMethod, Transaction } from '../types.ts';
 import { CATEGORIES } from '../constants.ts';
 import { parseTransactionText } from '../services/geminiService.ts';
-import { Sparkles, Plus, Loader2, CreditCard, Banknote, AlertCircle, X } from 'lucide-react';
+import { Sparkles, Plus, Loader2, CreditCard, Banknote, X, Key } from 'lucide-react';
 import { t } from '../utils/translations.ts';
 
 interface TransactionFormProps {
@@ -13,9 +13,10 @@ interface TransactionFormProps {
   onAdd: (data: Transaction) => Promise<void>;
   onClose: () => void;
   isDarkMode: boolean;
+  onApiKeyError?: () => void;
 }
 
-export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaultCurrency, language, onAdd, onClose, isDarkMode }) => {
+export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaultCurrency, language, onAdd, onClose, isDarkMode, onApiKeyError }) => {
   const [type, setType] = useState<TransactionType>(TransactionType.EXPENSE);
   const [amount, setAmount] = useState<string>('');
   const [currency, setCurrency] = useState<Currency>(defaultCurrency);
@@ -48,8 +49,13 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
       } else {
         setMagicError("AI non ha capito. Prova a specificare meglio.");
       }
-    } catch (e) {
-      setMagicError("Errore di connessione AI.");
+    } catch (e: any) {
+      if (e.message === "AI_KEY_ERROR") {
+        setMagicError("API Key mancante o non valida. Attivala nelle impostazioni.");
+        if (onApiKeyError) onApiKeyError();
+      } else {
+        setMagicError("Errore di connessione AI.");
+      }
     } finally {
       setIsMagicLoading(false);
     }
@@ -61,7 +67,6 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
 
     setIsSubmitting(true);
     
-    // Creiamo l'oggetto transazione assicurandoci che paymentMethod sia corretto
     const finalTransaction: Transaction = {
       id: crypto.randomUUID(),
       userId,
@@ -71,10 +76,8 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
       category,
       description: description || '',
       type,
-      paymentMethod: paymentMethod // Questo DEVE essere 'CASH' se selezionato
+      paymentMethod: paymentMethod 
     };
-
-    console.log("FORM SUBMIT -> Method:", finalTransaction.paymentMethod);
 
     try {
       await onAdd(finalTransaction);
@@ -119,6 +122,11 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
                 {isMagicLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
               </button>
             </div>
+            {magicError && (
+              <p className="text-red-500 text-[10px] font-bold mt-2 flex items-center gap-1">
+                <X className="w-3 h-3"/> {magicError}
+              </p>
+            )}
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">

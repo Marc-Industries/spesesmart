@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LogOut, Plus, LayoutDashboard, CreditCard, Wallet, TrendingUp, TrendingDown,
   BrainCircuit, X, Settings, ArrowLeft, Sun, Moon, Calendar, ListFilter,
-  BarChart3, ChevronLeft, CalendarDays, Clock, Archive
+  BarChart3, ChevronLeft, CalendarDays, Clock, Sparkles, Key
 } from 'lucide-react';
 import { Transaction, User, TransactionType, Language, Period, PaymentMethod } from './types.ts';
 import { MOCK_USERS, CATEGORIES } from './constants.ts';
@@ -18,9 +18,11 @@ import { t } from './utils/translations.ts';
 import ReactMarkdown from 'react-markdown';
 import { isSameDay, isSameWeek, isSameMonth, isSameYear } from 'date-fns';
 
+// FIX: Removed conflicting local declare global Window block because 'aistudio' is already defined 
+// as an optional 'AIStudio' type by the environment.
+
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  // Stato per gli utenti disponibili nella login, inizializzato con i mock ma aggiornato dal DB/LocalStorage
   const [availableUsers, setAvailableUsers] = useState<User[]>(MOCK_USERS);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
@@ -35,11 +37,8 @@ function App() {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  // Filtri Dashboard
   const [selectedPeriod, setSelectedPeriod] = useState<Period>(Period.ALL);
   const [paymentFilter, setPaymentFilter] = useState<'ALL' | PaymentMethod>('ALL');
-
-  // Filtri History
   const [historyPeriod, setHistoryPeriod] = useState<Period>(Period.ALL);
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
@@ -49,6 +48,9 @@ function App() {
   const [selectedLoginUser, setSelectedLoginUser] = useState<User | null>(null);
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState(false);
+
+  // AI Key Status
+  const [needsApiKey, setNeedsApiKey] = useState(false);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -60,7 +62,27 @@ function App() {
     }
   }, [isDarkMode]);
 
-  // Carica i dati utente aggiornati all'avvio per visualizzare gli avatar corretti
+  useEffect(() => {
+    const checkApiKey = async () => {
+      // @ts-ignore - aistudio is globally available in the environment but modifiers might conflict with local TS config
+      if (!process.env.API_KEY && window.aistudio) {
+        // @ts-ignore
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setNeedsApiKey(!selected);
+      }
+    };
+    checkApiKey();
+  }, []);
+
+  const handleOpenAiKeyDialog = async () => {
+    // @ts-ignore - aistudio is globally available in the environment
+    if (window.aistudio) {
+      // @ts-ignore
+      await window.aistudio.openSelectKey();
+      setNeedsApiKey(false); // Assume success per guidelines
+    }
+  };
+
   useEffect(() => {
     const fetchUsers = async () => {
       const updatedUsers = await Promise.all(
@@ -83,7 +105,6 @@ function App() {
     if (currentUser) {
       loadData(currentUser.id); 
       interval = window.setInterval(() => {
-        // AUMENTATO A 60 SECONDI: Per evitare refresh fastidiosi mentre l'utente lavora
         if (Date.now() - lastUserActionRef.current > 60000) {
           loadData(currentUser.id, true); 
         }
@@ -102,7 +123,6 @@ function App() {
     if (!silent) setIsLoadingData(false);
   };
 
-  // Logic for Dashboard Filter
   const filteredTransactions = useMemo(() => {
     const now = new Date();
     return transactions.filter(t => {
@@ -118,7 +138,6 @@ function App() {
     });
   }, [transactions, selectedPeriod, paymentFilter]);
 
-  // Logic for History Filter (Independent from Dashboard)
   const historyFilteredTransactions = useMemo(() => {
     const now = new Date();
     return transactions.filter(t => {
@@ -138,7 +157,6 @@ function App() {
     return Array.from(new Set([...CATEGORIES.EXPENSE, ...CATEGORIES.INCOME]));
   }, []);
 
-  // Category view in History should use history filtered data
   const categoryFilteredTransactions = useMemo(() => {
     if (selectedHistoryCategory) {
       return historyFilteredTransactions.filter(t => t.category === selectedHistoryCategory);
@@ -163,7 +181,6 @@ function App() {
     };
   }, [transactions, filteredTransactions, currentUser?.preferences.currency]);
 
-  // Calcolo statistiche periodiche per la scheda History (solo visualizzazione rapida)
   const timeStats = useMemo(() => {
       if (!currentUser) return { daily: 0, weekly: 0, monthly: 0 };
       const base = currentUser.preferences.currency;
@@ -215,7 +232,6 @@ function App() {
   const handleUpdateProfile = async (u: User) => { 
     setCurrentUser(u); 
     await updateUserProfile(u);
-    // Aggiorna anche la lista locale per la schermata di login
     setAvailableUsers(prev => prev.map(user => user.id === u.id ? u : user));
   };
   
@@ -233,7 +249,20 @@ function App() {
     } 
   };
   
-  const handleAnalyze = async () => { if (!currentUser) return; setIsAnalyzing(true); const result = await analyzeFinances(transactions, currentUser.preferences.language, currentUser.preferences.currency); setAiAnalysis(result); setIsAnalyzing(false); };
+  const handleAnalyze = async () => { 
+    if (!currentUser) return; 
+    setIsAnalyzing(true); 
+    const result = await analyzeFinances(transactions, currentUser.preferences.language, currentUser.preferences.currency); 
+    
+    if (result === "AI_KEY_ERROR") {
+      setNeedsApiKey(true);
+      setAiAnalysis("Configurazione API non valida o API Key mancante. Clicca su 'Attiva Funzioni AI' per continuare.");
+    } else {
+      setAiAnalysis(result); 
+    }
+    
+    setIsAnalyzing(false); 
+  };
 
   if (!currentUser) {
     return (
@@ -297,6 +326,18 @@ function App() {
           <button onClick={() => setActiveTab('history')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium ${activeTab === 'history' ? 'bg-blue-600/10 text-blue-600' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><CreditCard/> {t('history', language)}</button>
           <button onClick={() => setShowSettingsModal(true)} className="w-full flex items-center gap-3 p-3 text-slate-500 hover:text-blue-500"><Settings/> {t('settings', language)}</button>
         </nav>
+        
+        {needsApiKey && (
+          <div className="px-4 mb-4">
+            <button 
+              onClick={handleOpenAiKeyDialog} 
+              className="w-full bg-amber-500 text-white p-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 animate-pulse hover:bg-amber-600 transition-colors"
+            >
+              <Key size={14}/> ATTIVA FUNZIONI AI
+            </button>
+          </div>
+        )}
+        
         <button onClick={handleLogout} className="p-6 text-slate-400 flex items-center gap-2 hover:text-red-500"><LogOut size={18}/> {t('logout', language)}</button>
       </aside>
 
@@ -304,12 +345,14 @@ function App() {
         <div className="md:hidden flex justify-between items-center mb-6">
           <div className="flex items-center gap-2 font-bold"><Wallet className="text-blue-600"/> SpeseSmart</div>
           <div className="flex gap-2">
+             {needsApiKey && (
+                <button onClick={handleOpenAiKeyDialog} className="p-2 bg-amber-500 text-white rounded-full shadow-lg"><Sparkles size={18}/></button>
+             )}
              <img src={currentUser.avatar} className="w-10 h-10 rounded-full border-2 border-blue-600/20" alt="Avatar" />
              <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 border rounded-full">{isDarkMode ? <Sun size={20}/> : <Moon size={20}/>}</button>
           </div>
         </div>
 
-        {/* --- DASHBOARD VIEW --- */}
         {activeTab === 'dashboard' && (
           <div className="animate-fade-in space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -367,7 +410,6 @@ function App() {
                <h2 className={`text-3xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t('history', language)}</h2>
              </div>
              
-             {/* Time Breakdown Cards - REQUESTED FEATURE: DAILY/WEEKLY/MONTHLY REFS */}
              {!selectedHistoryCategory && (
                 <div className="grid grid-cols-3 gap-3 md:gap-6 mb-8">
                   <div className={`p-4 rounded-2xl border text-center ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
@@ -385,7 +427,6 @@ function App() {
                 </div>
              )}
 
-             {/* HISTORY FILTER BAR */}
              <div className="flex overflow-x-auto gap-3 pb-2 no-scrollbar items-center mb-6">
                 <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
                   {[Period.DAILY, Period.WEEKLY, Period.MONTHLY, Period.YEARLY, Period.ALL].map(p => (
@@ -416,10 +457,14 @@ function App() {
                      <div className="p-6 rounded-2xl border relative bg-indigo-50 dark:bg-slate-800 border-indigo-100 dark:border-slate-700 animate-fade-in">
                        <button onClick={() => setAiAnalysis(null)} className="absolute top-4 right-4 text-slate-400 hover:text-red-500"><X size={20}/></button>
                        <div className={`prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}><ReactMarkdown>{aiAnalysis}</ReactMarkdown></div>
+                       {aiAnalysis.includes("AI_KEY_ERROR") && (
+                         <button onClick={handleOpenAiKeyDialog} className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-xl text-sm font-black flex items-center gap-2">
+                           <Key size={16}/> Configura API Key
+                         </button>
+                       )}
                      </div>
                    )}
                    
-                   {/* GROUPED LIST BY MONTH */}
                    <TransactionList 
                       transactions={historyFilteredTransactions} 
                       onDelete={handleDeleteTransaction} 
@@ -475,7 +520,7 @@ function App() {
 
       <button onClick={() => setShowAddModal(true)} className="hidden md:flex fixed bottom-10 right-10 bg-blue-600 text-white p-5 rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all z-40"><Plus size={32}/></button>
 
-      {showAddModal && <TransactionForm userId={currentUser.id} defaultCurrency={baseCurrency} language={language} onClose={() => setShowAddModal(false)} onAdd={handleAddTransaction} isDarkMode={isDarkMode} />}
+      {showAddModal && <TransactionForm userId={currentUser.id} defaultCurrency={baseCurrency} language={language} onClose={() => setShowAddModal(false)} onAdd={handleAddTransaction} isDarkMode={isDarkMode} onApiKeyError={() => setNeedsApiKey(true)} />}
       {showSettingsModal && <SettingsModal user={currentUser} onUpdate={handleUpdateProfile} onClose={() => setShowSettingsModal(false)} />}
     </div>
   );
