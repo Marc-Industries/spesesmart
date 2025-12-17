@@ -41,7 +41,10 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
         if (result.description) setDescription(result.description);
         if (result.type) setType(result.type as TransactionType);
         if (result.currency) setCurrency(result.currency as Currency);
-        if (result.paymentMethod) setPaymentMethod(result.paymentMethod as PaymentMethod);
+        if (result.paymentMethod) {
+            const m = result.paymentMethod.toUpperCase();
+            setPaymentMethod(m === 'CASH' ? 'CASH' : 'CARD');
+        }
       } else {
         setMagicError("AI non ha capito. Prova a specificare meglio.");
       }
@@ -58,7 +61,7 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
 
     setIsSubmitting(true);
     
-    // Creiamo l'oggetto transazione con il valore ATTUALE dello stato paymentMethod
+    // Creiamo l'oggetto transazione assicurandoci che paymentMethod sia corretto
     const finalTransaction: Transaction = {
       id: crypto.randomUUID(),
       userId,
@@ -66,18 +69,18 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
       amount: parseFloat(amount),
       currency,
       category,
-      description,
+      description: description || '',
       type,
-      paymentMethod: paymentMethod // Questo DEVE essere 'CASH' se il bottone verde è selezionato
+      paymentMethod: paymentMethod // Questo DEVE essere 'CASH' se selezionato
     };
 
-    console.debug("Saving transaction with method:", finalTransaction.paymentMethod);
+    console.log("FORM SUBMIT -> Method:", finalTransaction.paymentMethod);
 
     try {
       await onAdd(finalTransaction);
       onClose();
     } catch (err) {
-      console.error("Error adding transaction:", err);
+      console.error("Error adding transaction from form:", err);
     } finally {
       setIsSubmitting(false);
     }

@@ -1,9 +1,9 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LogOut, Plus, LayoutDashboard, CreditCard, Wallet, TrendingUp, TrendingDown,
   BrainCircuit, X, Settings, ArrowLeft, Sun, Moon, Calendar, ListFilter,
-  BarChart3, ChevronLeft
+  BarChart3, ChevronLeft, CalendarDays, Clock
 } from 'lucide-react';
 import { Transaction, User, TransactionType, Language, Period, PaymentMethod } from './types.ts';
 import { MOCK_USERS, CATEGORIES } from './constants.ts';
@@ -22,6 +22,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const lastUserActionRef = useRef<number>(Date.now());
   
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -32,15 +33,12 @@ function App() {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  // Filter States
   const [selectedPeriod, setSelectedPeriod] = useState<Period>(Period.ALL);
   const [paymentFilter, setPaymentFilter] = useState<'ALL' | PaymentMethod>('ALL');
 
-  // Theme & Login UI State
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
   const [uiLanguage, setUiLanguage] = useState<Language>('it');
 
-  // Login State
   const [loginStep, setLoginStep] = useState<'select_user' | 'password'>('select_user');
   const [selectedLoginUser, setSelectedLoginUser] = useState<User | null>(null);
   const [passwordInput, setPasswordInput] = useState('');
@@ -61,8 +59,11 @@ function App() {
     if (currentUser) {
       loadData(currentUser.id); 
       interval = window.setInterval(() => {
-        loadData(currentUser.id, true); 
-      }, 15000); 
+        // AUMENTATO A 60 SECONDI: Per evitare refresh fastidiosi mentre l'utente lavora
+        if (Date.now() - lastUserActionRef.current > 60000) {
+          loadData(currentUser.id, true); 
+        }
+      }, 30000); 
     }
     return () => clearInterval(interval);
   }, [currentUser]);
@@ -71,33 +72,24 @@ function App() {
     if (!silent) setIsLoadingData(true);
     const data = await getTransactions(userId);
     if (data) {
-        // Ordiniamo per data decrescente
         const sorted = data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         setTransactions(sorted);
     }
     if (!silent) setIsLoadingData(false);
   };
 
-  // --- FILTER LOGIC ---
   const filteredTransactions = useMemo(() => {
     const now = new Date();
     return transactions.filter(t => {
-      // 1. Payment Method Filter
-      const method = t.paymentMethod;
-      if (paymentFilter !== 'ALL' && method !== paymentFilter) return false;
-
-      // 2. Period Filter
+      if (paymentFilter !== 'ALL' && t.paymentMethod !== paymentFilter) return false;
       if (selectedPeriod === Period.ALL) return true;
-
       const tDate = new Date(t.date);
-      let periodMatch = true;
       switch (selectedPeriod) {
-        case Period.DAILY: periodMatch = isSameDay(tDate, now); break;
-        case Period.WEEKLY: periodMatch = isSameWeek(tDate, now, { weekStartsOn: 1 }); break;
-        case Period.MONTHLY: periodMatch = isSameMonth(tDate, now); break;
-        default: periodMatch = true;
+        case Period.DAILY: return isSameDay(tDate, now);
+        case Period.WEEKLY: return isSameWeek(tDate, now, { weekStartsOn: 1 });
+        case Period.MONTHLY: return isSameMonth(tDate, now);
+        default: return true;
       }
-      return periodMatch;
     });
   }, [transactions, selectedPeriod, paymentFilter]);
 
@@ -129,7 +121,24 @@ function App() {
     };
   }, [transactions, filteredTransactions, currentUser?.preferences.currency]);
 
-  // --- HANDLERS ---
+  // Calcolo statistiche periodiche per la scheda History
+  const timeStats = useMemo(() => {
+      if (!currentUser) return { daily: 0, weekly: 0, monthly: 0 };
+      const base = currentUser.preferences.currency;
+      const now = new Date();
+      
+      const calcExpense = (predicate: (d: Date) => boolean) => 
+        transactions
+          .filter(t => t.type === TransactionType.EXPENSE && predicate(new Date(t.date)))
+          .reduce((acc, t) => acc + convertCurrency(t.amount, t.currency, base), 0);
+
+      return {
+        daily: calcExpense((d) => isSameDay(d, now)),
+        weekly: calcExpense((d) => isSameWeek(d, now, { weekStartsOn: 1 })),
+        monthly: calcExpense((d) => isSameMonth(d, now))
+      };
+  }, [transactions, currentUser?.preferences.currency]);
+
   const handleUserSelect = async (mockUser: User) => {
     try {
         const dbUser = await getUserProfile(mockUser.id);
@@ -163,15 +172,16 @@ function App() {
   const handleUpdateProfile = async (u: User) => { setCurrentUser(u); await updateUserProfile(u); };
   
   const handleAddTransaction = async (t: Transaction) => { 
-    await addTransaction(t); 
-    // Aggiorniamo lo stato locale immediatamente per UX istantanea
+    lastUserActionRef.current = Date.now();
     setTransactions(prev => [t, ...prev]);
+    await addTransaction(t); 
   };
 
   const handleDeleteTransaction = async (id: string) => { 
     if (window.confirm("Sicuro?")) { 
-      await deleteTransaction(id); 
+      lastUserActionRef.current = Date.now();
       setTransactions(prev => prev.filter(t => t.id !== id));
+      await deleteTransaction(id); 
     } 
   };
   
@@ -232,7 +242,6 @@ function App() {
   return (
     <div className={`min-h-screen pb-24 md:pb-0 flex transition-colors duration-300 ${isDarkMode ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       
-      {/* SIDEBAR */}
       <aside className={`hidden md:flex flex-col w-64 border-r fixed h-full z-10 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
         <div className="p-6 flex items-center gap-3 font-bold text-xl"><Wallet className="text-blue-600"/> SpeseSmart</div>
         <nav className="flex-1 px-4 space-y-2 mt-4">
@@ -243,7 +252,6 @@ function App() {
         <button onClick={handleLogout} className="p-6 text-slate-400 flex items-center gap-2 hover:text-red-500"><LogOut size={18}/> {t('logout', language)}</button>
       </aside>
 
-      {/* MAIN */}
       <main className="flex-1 md:ml-64 p-4 md:p-8 max-w-7xl mx-auto w-full">
         <div className="md:hidden flex justify-between items-center mb-6">
           <div className="flex items-center gap-2 font-bold"><Wallet className="text-blue-600"/> SpeseSmart</div>
@@ -253,44 +261,43 @@ function App() {
           </div>
         </div>
 
-        {/* STATS CARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl border border-slate-700 relative overflow-hidden">
-            <p className="text-slate-400 text-sm mb-1">{t('balance', language)}</p>
-            <h2 className="text-3xl font-bold">{formatCurrency(stats.balance, baseCurrency)}</h2>
-            <div className="absolute top-0 right-0 p-4 opacity-10"><Wallet size={80}/></div>
-          </div>
-          <div className={`p-6 rounded-2xl border shadow-sm flex items-center justify-between ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
-            <div><p className="text-slate-400 text-sm mb-1">{t('income', language)}</p><h2 className="text-2xl font-bold text-emerald-500">+{formatCurrency(stats.filteredIncome, baseCurrency)}</h2></div>
-            <div className="p-3 rounded-full bg-emerald-500/10 text-emerald-500"><TrendingUp/></div>
-          </div>
-          <div className={`p-6 rounded-2xl border shadow-sm flex items-center justify-between ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
-            <div><p className="text-slate-400 text-sm mb-1">{t('expense', language)}</p><h2 className="text-2xl font-bold text-red-500">-{formatCurrency(stats.filteredExpense, baseCurrency)}</h2></div>
-            <div className="p-3 rounded-full bg-red-500/10 text-red-500"><TrendingDown/></div>
-          </div>
-        </div>
-
-        {/* PERIOD FILTERS */}
-        <div className="mb-6 flex overflow-x-auto gap-3 pb-2 no-scrollbar items-center">
-          <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
-            {[Period.DAILY, Period.WEEKLY, Period.MONTHLY, Period.ALL].map(p => (
-              <button key={p} onClick={() => setSelectedPeriod(p)} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${selectedPeriod === p ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
-                {p}
-              </button>
-            ))}
-          </div>
-          <div className="h-10 w-px bg-slate-300 dark:bg-slate-700 mx-1"/>
-          <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
-            {['ALL', 'CARD', 'CASH'].map(m => (
-              <button key={m} onClick={() => setPaymentFilter(m as any)} className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${paymentFilter === m ? 'bg-slate-800 text-white border border-slate-700' : 'text-slate-500 hover:text-slate-300'}`}>
-                {m}
-              </button>
-            ))}
-          </div>
-        </div>
-
+        {/* --- DASHBOARD VIEW --- */}
         {activeTab === 'dashboard' && (
-          <div className="space-y-6 animate-fade-in">
+          <div className="animate-fade-in space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl border border-slate-700 relative overflow-hidden">
+                <p className="text-slate-400 text-sm mb-1">{t('balance', language)}</p>
+                <h2 className="text-3xl font-bold">{formatCurrency(stats.balance, baseCurrency)}</h2>
+                <div className="absolute top-0 right-0 p-4 opacity-10"><Wallet size={80}/></div>
+              </div>
+              <div className={`p-6 rounded-2xl border shadow-sm flex items-center justify-between ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                <div><p className="text-slate-400 text-sm mb-1">{t('income', language)}</p><h2 className="text-2xl font-bold text-emerald-500">+{formatCurrency(stats.filteredIncome, baseCurrency)}</h2></div>
+                <div className="p-3 rounded-full bg-emerald-500/10 text-emerald-500"><TrendingUp/></div>
+              </div>
+              <div className={`p-6 rounded-2xl border shadow-sm flex items-center justify-between ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                <div><p className="text-slate-400 text-sm mb-1">{t('expense', language)}</p><h2 className="text-2xl font-bold text-red-500">-{formatCurrency(stats.filteredExpense, baseCurrency)}</h2></div>
+                <div className="p-3 rounded-full bg-red-500/10 text-red-500"><TrendingDown/></div>
+              </div>
+            </div>
+
+            <div className="flex overflow-x-auto gap-3 pb-2 no-scrollbar items-center">
+              <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
+                {[Period.DAILY, Period.WEEKLY, Period.MONTHLY, Period.ALL].map(p => (
+                  <button key={p} onClick={() => setSelectedPeriod(p)} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${selectedPeriod === p ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+              <div className="h-10 w-px bg-slate-300 dark:bg-slate-700 mx-1"/>
+              <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
+                {['ALL', 'CARD', 'CASH'].map(m => (
+                  <button key={m} onClick={() => setPaymentFilter(m as any)} className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${paymentFilter === m ? 'bg-slate-800 text-white border border-slate-700' : 'text-slate-500 hover:text-slate-300'}`}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <BalanceTrendChart transactions={filteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-6">
@@ -305,15 +312,34 @@ function App() {
           </div>
         )}
 
+        {/* --- HISTORY VIEW --- */}
         {activeTab === 'history' && (
           <div className="animate-fade-in">
-             <div className="flex items-center justify-between mb-4">
+             <div className="flex items-center justify-between mb-6">
                <h2 className={`text-3xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t('history', language)}</h2>
              </div>
              
+             {/* Time Breakdown Cards - REQUESTED FEATURE: DAILY/WEEKLY/MONTHLY REFS */}
+             {!selectedHistoryCategory && (
+                <div className="grid grid-cols-3 gap-3 md:gap-6 mb-8">
+                  <div className={`p-4 rounded-2xl border text-center ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-center gap-1"><Clock className="w-3 h-3"/> Spese Oggi</div>
+                      <div className="text-lg md:text-2xl font-black text-slate-700 dark:text-slate-200">-{formatCurrency(timeStats.daily, baseCurrency)}</div>
+                  </div>
+                  <div className={`p-4 rounded-2xl border text-center ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-center gap-1"><CalendarDays className="w-3 h-3"/> Spese Settimana</div>
+                      <div className="text-lg md:text-2xl font-black text-slate-700 dark:text-slate-200">-{formatCurrency(timeStats.weekly, baseCurrency)}</div>
+                  </div>
+                  <div className={`p-4 rounded-2xl border text-center ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-center gap-1"><Calendar className="w-3 h-3"/> Spese Mese</div>
+                      <div className="text-lg md:text-2xl font-black text-slate-700 dark:text-slate-200">-{formatCurrency(timeStats.monthly, baseCurrency)}</div>
+                  </div>
+                </div>
+             )}
+
              <div className="flex gap-8 mb-8 border-b dark:border-slate-800">
                 <button onClick={() => { setHistorySubTab('total'); setSelectedHistoryCategory(null); }} className={`relative pb-4 text-sm font-bold transition-all px-1 ${historySubTab === 'total' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'}`}>
-                  Tutti i Movimenti
+                  Report Completo
                   {historySubTab === 'total' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full shadow-[0_-4px_10px_rgba(59,130,246,0.5)]" />}
                 </button>
                 <button onClick={() => { if (historySubTab === 'categories' && selectedHistoryCategory) setSelectedHistoryCategory(null); else setHistorySubTab('categories'); }} className={`relative pb-4 text-sm font-bold transition-all px-1 ${historySubTab === 'categories' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'}`}>
@@ -333,7 +359,16 @@ function App() {
                        <div className={`prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}><ReactMarkdown>{aiAnalysis}</ReactMarkdown></div>
                      </div>
                    )}
-                   <TransactionList transactions={filteredTransactions} onDelete={handleDeleteTransaction} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
+                   
+                   {/* GROUPED LIST BY MONTH */}
+                   <TransactionList 
+                      transactions={filteredTransactions} 
+                      onDelete={handleDeleteTransaction} 
+                      baseCurrency={baseCurrency} 
+                      language={language} 
+                      isDarkMode={isDarkMode} 
+                      groupByMonth={true}
+                   />
                 </div>
              ) : (
                 <div className="animate-fade-in">
@@ -373,7 +408,6 @@ function App() {
         )}
       </main>
 
-      {/* MOBILE NAV */}
       <div className={`md:hidden fixed bottom-0 left-0 w-full border-t flex justify-around p-4 z-40 transition-colors ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
         <button onClick={() => { setActiveTab('dashboard'); setSelectedHistoryCategory(null); }} className={`flex flex-col items-center gap-1 ${activeTab === 'dashboard' ? 'text-blue-500' : 'text-slate-400'}`}><LayoutDashboard/><span className="text-[10px] font-bold uppercase">Dashboard</span></button>
         <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white rounded-full p-4 -mt-10 shadow-xl border-4 border-white dark:border-slate-900 transition-transform active:scale-90"><Plus size={28}/></button>
