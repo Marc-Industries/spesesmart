@@ -1,9 +1,9 @@
 
 import React, { useState } from 'react';
-import { TransactionType, Currency, Language, PaymentMethod, Transaction } from '../types.ts';
+import { TransactionType, Currency, Language, Transaction } from '../types.ts';
 import { CATEGORIES } from '../constants.ts';
 import { parseTransactionText } from '../services/geminiService.ts';
-import { Sparkles, Plus, Loader2, CreditCard, Banknote, X, Key } from 'lucide-react';
+import { Sparkles, Plus, Loader2, X } from 'lucide-react';
 import { t } from '../utils/translations.ts';
 
 interface TransactionFormProps {
@@ -23,7 +23,6 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
   const [category, setCategory] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CARD');
   
   const [magicInput, setMagicInput] = useState<string>('');
   const [isMagicLoading, setIsMagicLoading] = useState(false);
@@ -42,10 +41,6 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
         if (result.description) setDescription(result.description);
         if (result.type) setType(result.type as TransactionType);
         if (result.currency) setCurrency(result.currency as Currency);
-        if (result.paymentMethod) {
-            const m = result.paymentMethod.toUpperCase();
-            setPaymentMethod(m === 'CASH' ? 'CASH' : 'CARD');
-        }
       } else {
         setMagicError("AI non ha capito. Prova a specificare meglio.");
       }
@@ -75,8 +70,7 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
       currency,
       category,
       description: description || '',
-      type,
-      paymentMethod: paymentMethod 
+      type
     };
 
     try {
@@ -171,32 +165,9 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ userId, defaul
               </div>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-500 mb-1">{t('date', language)}</label>
-                    <input type="date" required value={date} onChange={e => setDate(e.target.value)} className={inputClass} />
-                </div>
-                <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-500 mb-1">{t('payment_method', language)}</label>
-                    <div className="flex gap-2">
-                        <button 
-                          type="button" 
-                          onClick={() => setPaymentMethod('CARD')} 
-                          className={`flex-1 py-3 px-2 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all ${paymentMethod === 'CARD' ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : (isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-400' : 'border-slate-100 bg-slate-50 text-slate-400')}`}
-                        >
-                            <CreditCard size={18} />
-                            <span className="text-[10px] font-black tracking-tighter">{t('card', language).toUpperCase()}</span>
-                        </button>
-                        <button 
-                          type="button" 
-                          onClick={() => setPaymentMethod('CASH')} 
-                          className={`flex-1 py-3 px-2 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all ${paymentMethod === 'CASH' ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : (isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-400' : 'border-slate-100 bg-slate-50 text-slate-400')}`}
-                        >
-                            <Banknote size={18} />
-                            <span className="text-[10px] font-black tracking-tighter">{t('cash', language).toUpperCase()}</span>
-                        </button>
-                    </div>
-                </div>
+            <div>
+                <label className="block text-[10px] font-black uppercase text-slate-500 mb-1">{t('date', language)}</label>
+                <input type="date" required value={date} onChange={e => setDate(e.target.value)} className={inputClass} />
             </div>
 
             <div>

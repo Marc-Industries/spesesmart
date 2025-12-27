@@ -41,30 +41,77 @@ const TransactionSchema = new mongoose.Schema({
   currency: String,
   category: String,
   description: String,
-  type: String,
-  // RIMOSSO IL DEFAULT: se non c'è, non deve essere salvato nulla o dare errore
-  paymentMethod: { type: String, required: true, enum: ['CASH', 'CARD'] }
+  type: String
+});
+
+const SubscriptionSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  userId: { type: String, required: true },
+  name: String,
+  amount: Number,
+  currency: String,
+  category: String,
+  frequency: { type: String, enum: ['MONTHLY', 'YEARLY'] },
+  nextPaymentDate: String, // YYYY-MM-DD
+  active: { type: Boolean, default: true }
 });
 
 const UserModel = mongoose.model('User', UserSchema);
 const TransactionModel = mongoose.model('Transaction', TransactionSchema);
+const SubscriptionModel = mongoose.model('Subscription', SubscriptionSchema);
 
 if (MONGODB_URI) {
   mongoose.connect(MONGODB_URI).then(() => console.log('✅ MongoDB Connected')).catch(err => console.error(err));
 }
 
+// --- HELPER: Process Subscriptions ---
+const processSubscriptions = async (userId) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const dueSubs = await SubscriptionModel.find({ 
+      userId, 
+      active: true,
+      nextPaymentDate: { $lte: today.toISOString().split('T')[0] } 
+    });
+
+    for (const sub of dueSubs) {
+      // 1. Create Transaction
+      const newTx = new TransactionModel({
+        id: crypto.randomUUID(),
+        userId: sub.userId,
+        date: new Date().toISOString(),
+        amount: sub.amount,
+        currency: sub.currency,
+        category: sub.category,
+        description: `Abbonamento: ${sub.name}`,
+        type: 'EXPENSE'
+      });
+      await newTx.save();
+
+      // 2. Update Next Payment Date
+      const nextDate = new Date(sub.nextPaymentDate);
+      if (sub.frequency === 'MONTHLY') {
+        nextDate.setMonth(nextDate.getMonth() + 1);
+      } else {
+        nextDate.setFullYear(nextDate.getFullYear() + 1);
+      }
+      
+      sub.nextPaymentDate = nextDate.toISOString().split('T')[0];
+      await sub.save();
+      console.log(`[SUB] Processed subscription ${sub.name} for user ${userId}`);
+    }
+  } catch (e) {
+    console.error("Error processing subscriptions:", e);
+  }
+};
+
 // --- API ROUTES ---
 app.post('/api/transactions', async (req, res) => {
   try {
     const data = req.body;
-    
-    // Validazione forzata del metodo di pagamento prima del DB
-    if (!['CASH', 'CARD'].includes(data.paymentMethod)) {
-       console.error("ERRORE: Metodo di pagamento non valido ricevuto:", data.paymentMethod);
-       return res.status(400).json({ error: "paymentMethod must be CASH or CARD" });
-    }
-
-    console.log(`[DB SAVE] ID: ${data.id} | Desc: ${data.description} | Method: ${data.paymentMethod}`);
+    console.log(`[DB SAVE] ID: ${data.id} | Desc: ${data.description}`);
     
     const tx = await TransactionModel.findOneAndUpdate(
       { id: data.id },
@@ -76,8 +123,7 @@ app.post('/api/transactions', async (req, res) => {
         currency: data.currency,
         category: data.category,
         description: data.description,
-        type: data.type,
-        paymentMethod: data.paymentMethod // Niente fallback 'CARD' qui, usiamo quello che arriva
+        type: data.type
       },
       { new: true, upsert: true }
     );
@@ -91,6 +137,9 @@ app.post('/api/transactions', async (req, res) => {
 
 app.get('/api/transactions', async (req, res) => {
   const { userId } = req.query;
+  // Trigger subscription check before returning data
+  if (userId) await processSubscriptions(userId);
+  
   const transactions = await TransactionModel.find({ userId }).sort({ date: -1 });
   res.json(transactions);
 });
@@ -107,6 +156,32 @@ app.put('/api/users/:id', async (req, res) => {
 
 app.delete('/api/transactions/:id', async (req, res) => {
   await TransactionModel.deleteOne({ id: req.params.id });
+  res.json({ success: true });
+});
+
+// --- SUBSCRIPTION ROUTES ---
+app.get('/api/subscriptions', async (req, res) => {
+  const { userId } = req.query;
+  const subs = await SubscriptionModel.find({ userId });
+  res.json(subs);
+});
+
+app.post('/api/subscriptions', async (req, res) => {
+  try {
+    const data = req.body;
+    const sub = await SubscriptionModel.findOneAndUpdate(
+      { id: data.id },
+      data,
+      { new: true, upsert: true }
+    );
+    res.json(sub);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/subscriptions/:id', async (req, res) => {
+  await SubscriptionModel.deleteOne({ id: req.params.id });
   res.json({ success: true });
 });
 

@@ -3,13 +3,13 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LogOut, Plus, LayoutDashboard, CreditCard, Wallet, TrendingUp, TrendingDown,
   BrainCircuit, X, Settings, ArrowLeft, Sun, Moon, Calendar, ListFilter,
-  BarChart3, ChevronLeft, CalendarDays, Clock, Sparkles, Key
+  BarChart3, ChevronLeft, CalendarDays, Clock, Sparkles, Key, Loader2, Repeat, Trash2
 } from 'lucide-react';
-import { Transaction, User, TransactionType, Language, Period, PaymentMethod } from './types.ts';
+import { Transaction, User, TransactionType, Language, Period, Subscription, Currency } from './types.ts';
 import { MOCK_USERS, CATEGORIES } from './constants.ts';
-import { getTransactions, addTransaction, deleteTransaction, getUserProfile, updateUserProfile } from './services/dataService.ts';
+import { getTransactions, addTransaction, deleteTransaction, getUserProfile, updateUserProfile, getSubscriptions, addSubscription, deleteSubscription } from './services/dataService.ts';
 import { analyzeFinances } from './services/geminiService.ts';
-import { ExpensePieChart, IncomePieChart, BalanceTrendChart, PaymentMethodPieChart } from './components/Charts.tsx';
+import { ExpensePieChart, IncomePieChart, BalanceTrendChart } from './components/Charts.tsx';
 import { TransactionForm } from './components/TransactionForm.tsx';
 import { TransactionList } from './components/TransactionList.tsx';
 import { SettingsModal } from './components/SettingsModal.tsx';
@@ -18,12 +18,11 @@ import { t } from './utils/translations.ts';
 import ReactMarkdown from 'react-markdown';
 import { isSameDay, isSameWeek, isSameMonth, isSameYear } from 'date-fns';
 
-// FIX: Removed conflicting local declare global Window block because 'aistudio' is already defined 
-// as an optional 'AIStudio' type by the environment.
-
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [availableUsers, setAvailableUsers] = useState<User[]>(MOCK_USERS);
+  const [availableUsers, setAvailableUsers] = useState<User[]>([]); // Start empty to wait for server
+  const [isUsersLoading, setIsUsersLoading] = useState(true);
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const lastUserActionRef = useRef<number>(Date.now());
@@ -31,14 +30,13 @@ function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history'>('dashboard');
-  const [historySubTab, setHistorySubTab] = useState<'total' | 'categories'>('total');
+  const [historySubTab, setHistorySubTab] = useState<'total' | 'categories' | 'subscriptions'>('total');
   const [selectedHistoryCategory, setSelectedHistoryCategory] = useState<string | null>(null);
 
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const [selectedPeriod, setSelectedPeriod] = useState<Period>(Period.ALL);
-  const [paymentFilter, setPaymentFilter] = useState<'ALL' | PaymentMethod>('ALL');
   const [historyPeriod, setHistoryPeriod] = useState<Period>(Period.ALL);
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
@@ -52,6 +50,12 @@ function App() {
   // AI Key Status
   const [needsApiKey, setNeedsApiKey] = useState(false);
 
+  // Subscriptions State
+  const [subs, setSubs] = useState<Subscription[]>([]);
+  const [newSub, setNewSub] = useState<Partial<Subscription>>({
+     amount: 0, frequency: 'MONTHLY', category: 'Altro', nextPaymentDate: ''
+  });
+
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -64,7 +68,7 @@ function App() {
 
   useEffect(() => {
     const checkApiKey = async () => {
-      // @ts-ignore - aistudio is globally available in the environment but modifiers might conflict with local TS config
+      // @ts-ignore
       if (!process.env.API_KEY && window.aistudio) {
         // @ts-ignore
         const selected = await window.aistudio.hasSelectedApiKey();
@@ -75,19 +79,22 @@ function App() {
   }, []);
 
   const handleOpenAiKeyDialog = async () => {
-    // @ts-ignore - aistudio is globally available in the environment
+    // @ts-ignore
     if (window.aistudio) {
       // @ts-ignore
       await window.aistudio.openSelectKey();
-      setNeedsApiKey(false); // Assume success per guidelines
+      setNeedsApiKey(false); 
     }
   };
 
+  // FETCH USERS ON MOUNT
   useEffect(() => {
     const fetchUsers = async () => {
+      setIsUsersLoading(true);
       const updatedUsers = await Promise.all(
         MOCK_USERS.map(async (mockUser) => {
           try {
+            // Force fetch from server
             const profile = await getUserProfile(mockUser.id);
             return profile || mockUser;
           } catch (e) {
@@ -96,6 +103,7 @@ function App() {
         })
       );
       setAvailableUsers(updatedUsers);
+      setIsUsersLoading(false);
     };
     fetchUsers();
   }, []);
@@ -113,6 +121,15 @@ function App() {
     return () => clearInterval(interval);
   }, [currentUser]);
 
+  // Fetch Subscriptions when tab changes
+  useEffect(() => {
+      if (currentUser && activeTab === 'history' && historySubTab === 'subscriptions') {
+          getSubscriptions(currentUser.id).then(setSubs);
+          // Set default currency for new subs
+          setNewSub(prev => ({ ...prev, currency: currentUser.preferences.currency }));
+      }
+  }, [currentUser, activeTab, historySubTab]);
+
   const loadData = async (userId: string, silent = false) => {
     if (!silent) setIsLoadingData(true);
     const data = await getTransactions(userId);
@@ -126,7 +143,6 @@ function App() {
   const filteredTransactions = useMemo(() => {
     const now = new Date();
     return transactions.filter(t => {
-      if (paymentFilter !== 'ALL' && t.paymentMethod !== paymentFilter) return false;
       if (selectedPeriod === Period.ALL) return true;
       const tDate = new Date(t.date);
       switch (selectedPeriod) {
@@ -136,7 +152,7 @@ function App() {
         default: return true;
       }
     });
-  }, [transactions, selectedPeriod, paymentFilter]);
+  }, [transactions, selectedPeriod]);
 
   const historyFilteredTransactions = useMemo(() => {
     const now = new Date();
@@ -248,6 +264,31 @@ function App() {
       await deleteTransaction(id); 
     } 
   };
+
+  const handleAddSub = async () => {
+    if (!currentUser || !newSub.name || !newSub.amount || !newSub.nextPaymentDate) return;
+    const sub: Subscription = {
+        id: crypto.randomUUID(),
+        userId: currentUser.id,
+        name: newSub.name,
+        amount: Number(newSub.amount),
+        currency: newSub.currency as Currency,
+        category: newSub.category || 'Altro',
+        frequency: newSub.frequency as 'MONTHLY' | 'YEARLY',
+        nextPaymentDate: newSub.nextPaymentDate,
+        active: true
+    };
+    await addSubscription(sub);
+    setSubs(prev => [...prev, sub]);
+    setNewSub({ ...newSub, name: '', amount: 0 });
+  };
+
+  const handleDeleteSub = async (id: string) => {
+    if (window.confirm("Eliminare abbonamento?")) {
+        await deleteSubscription(id);
+        setSubs(prev => prev.filter(s => s.id !== id));
+    }
+  };
   
   const handleAnalyze = async () => { 
     if (!currentUser) return; 
@@ -282,32 +323,40 @@ function App() {
           </div>
           <div className="w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-blue-500/30 ring-4 ring-blue-600/10"><Wallet className="text-white w-10 h-10" /></div>
           <h1 className="text-3xl font-black mb-8 tracking-tight">SpeseSmart AI</h1>
-          {loginStep === 'select_user' ? (
-            <div className="space-y-4">
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">{t('login_subtitle', uiLanguage)}</p>
-              {availableUsers.map(user => (
-                <button key={user.id} onClick={() => handleUserSelect(user)} className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all group ${isDarkMode ? 'border-slate-700 hover:bg-slate-700 hover:border-blue-500' : 'border-slate-100 hover:bg-blue-50 hover:border-blue-500'}`}>
-                  <img src={user.avatar} className="w-12 h-12 rounded-full shadow-sm bg-slate-100 dark:bg-slate-600" alt={user.name} />
-                  <div className="text-left">
-                    <div className="font-bold text-lg group-hover:text-blue-600 transition-colors">{user.name}</div>
-                    <div className="text-xs text-slate-400">{t('login_btn', uiLanguage)}</div>
-                  </div>
-                </button>
-              ))}
+          
+          {isUsersLoading ? (
+            <div className="py-10 flex flex-col items-center">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-2"/>
+                <p className="text-slate-500 text-sm">Sveglio il server...</p>
             </div>
           ) : (
-            <form onSubmit={handlePasswordSubmit} className="space-y-6 animate-fade-in">
-              <button type="button" onClick={() => { setLoginStep('select_user'); setLoginError(false); }} className="flex items-center text-sm font-medium text-slate-400 hover:text-blue-500 gap-1 transition-colors"><ArrowLeft size={16}/> {t('back', uiLanguage)}</button>
-              <div className="text-center">
-                <img src={selectedLoginUser?.avatar} className="w-24 h-24 rounded-full mx-auto mb-4 border-4 border-blue-600/10" alt="User" />
-                <h2 className="text-xl font-bold">{selectedLoginUser?.name}</h2>
+             loginStep === 'select_user' ? (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">{t('login_subtitle', uiLanguage)}</p>
+                {availableUsers.map(user => (
+                  <button key={user.id} onClick={() => handleUserSelect(user)} className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all group ${isDarkMode ? 'border-slate-700 hover:bg-slate-700 hover:border-blue-500' : 'border-slate-100 hover:bg-blue-50 hover:border-blue-500'}`}>
+                    <img src={user.avatar} className="w-12 h-12 rounded-full shadow-sm bg-slate-100 dark:bg-slate-600" alt={user.name} />
+                    <div className="text-left">
+                      <div className="font-bold text-lg group-hover:text-blue-600 transition-colors">{user.name}</div>
+                      <div className="text-xs text-slate-400">{t('login_btn', uiLanguage)}</div>
+                    </div>
+                  </button>
+                ))}
               </div>
-              <div className="relative">
-                <input type="password" autoFocus value={passwordInput} onChange={e => setPasswordInput(e.target.value)} className={`w-full p-4 border-2 rounded-2xl outline-none transition-all font-medium text-center text-lg shadow-inner ${isDarkMode ? 'bg-slate-950 border-slate-700 text-white focus:border-blue-500' : 'bg-white border-slate-200 text-slate-900 focus:border-blue-500'} ${loginError ? 'border-red-500 ring-4 ring-red-500/10' : ''}`} placeholder={t('password_placeholder', uiLanguage)} />
-                {loginError && <p className="text-red-500 text-sm font-bold mt-3 animate-bounce">{t('wrong_password', uiLanguage)}</p>}
-              </div>
-              <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-lg shadow-xl shadow-blue-600/30 hover:bg-blue-700 hover:-translate-y-0.5 transition-all">{t('login_btn', uiLanguage)}</button>
-            </form>
+            ) : (
+              <form onSubmit={handlePasswordSubmit} className="space-y-6 animate-fade-in">
+                <button type="button" onClick={() => { setLoginStep('select_user'); setLoginError(false); }} className="flex items-center text-sm font-medium text-slate-400 hover:text-blue-500 gap-1 transition-colors"><ArrowLeft size={16}/> {t('back', uiLanguage)}</button>
+                <div className="text-center">
+                  <img src={selectedLoginUser?.avatar} className="w-24 h-24 rounded-full mx-auto mb-4 border-4 border-blue-600/10" alt="User" />
+                  <h2 className="text-xl font-bold">{selectedLoginUser?.name}</h2>
+                </div>
+                <div className="relative">
+                  <input type="password" autoFocus value={passwordInput} onChange={e => setPasswordInput(e.target.value)} className={`w-full p-4 border-2 rounded-2xl outline-none transition-all font-medium text-center text-lg shadow-inner ${isDarkMode ? 'bg-slate-950 border-slate-700 text-white focus:border-blue-500' : 'bg-white border-slate-200 text-slate-900 focus:border-blue-500'} ${loginError ? 'border-red-500 ring-4 ring-red-500/10' : ''}`} placeholder={t('password_placeholder', uiLanguage)} />
+                  {loginError && <p className="text-red-500 text-sm font-bold mt-3 animate-bounce">{t('wrong_password', uiLanguage)}</p>}
+                </div>
+                <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-lg shadow-xl shadow-blue-600/30 hover:bg-blue-700 hover:-translate-y-0.5 transition-all">{t('login_btn', uiLanguage)}</button>
+              </form>
+            )
           )}
         </div>
       </div>
@@ -348,7 +397,9 @@ function App() {
              {needsApiKey && (
                 <button onClick={handleOpenAiKeyDialog} className="p-2 bg-amber-500 text-white rounded-full shadow-lg"><Sparkles size={18}/></button>
              )}
-             <img src={currentUser.avatar} className="w-10 h-10 rounded-full border-2 border-blue-600/20" alt="Avatar" />
+             <button onClick={() => setShowSettingsModal(true)} className="active:scale-95 transition-transform">
+                <img src={currentUser.avatar} className="w-10 h-10 rounded-full border-2 border-blue-600/20" alt="Avatar" />
+             </button>
              <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 border rounded-full">{isDarkMode ? <Sun size={20}/> : <Moon size={20}/>}</button>
           </div>
         </div>
@@ -379,14 +430,6 @@ function App() {
                   </button>
                 ))}
               </div>
-              <div className="h-10 w-px bg-slate-300 dark:bg-slate-700 mx-1"/>
-              <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
-                {['ALL', 'CARD', 'CASH'].map(m => (
-                  <button key={m} onClick={() => setPaymentFilter(m as any)} className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${paymentFilter === m ? 'bg-slate-800 text-white border border-slate-700' : 'text-slate-500 hover:text-slate-300'}`}>
-                    {t(m.toLowerCase(), language).toUpperCase()}
-                  </button>
-                ))}
-              </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -410,7 +453,7 @@ function App() {
                <h2 className={`text-3xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t('history', language)}</h2>
              </div>
              
-             {!selectedHistoryCategory && (
+             {!selectedHistoryCategory && historySubTab !== 'subscriptions' && (
                 <div className="grid grid-cols-3 gap-3 md:gap-6 mb-8">
                   <div className={`p-4 rounded-2xl border text-center ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
                       <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-center gap-1"><Clock className="w-3 h-3"/> Spese Oggi</div>
@@ -427,28 +470,34 @@ function App() {
                 </div>
              )}
 
-             <div className="flex overflow-x-auto gap-3 pb-2 no-scrollbar items-center mb-6">
-                <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
-                  {[Period.DAILY, Period.WEEKLY, Period.MONTHLY, Period.YEARLY, Period.ALL].map(p => (
-                    <button key={p} onClick={() => setHistoryPeriod(p)} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${historyPeriod === p ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
-                      {t(p, language)}
-                    </button>
-                  ))}
-                </div>
-             </div>
+             {historySubTab !== 'subscriptions' && (
+               <div className="flex overflow-x-auto gap-3 pb-2 no-scrollbar items-center mb-6">
+                  <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-lg">
+                    {[Period.DAILY, Period.WEEKLY, Period.MONTHLY, Period.YEARLY, Period.ALL].map(p => (
+                      <button key={p} onClick={() => setHistoryPeriod(p)} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${historyPeriod === p ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+                        {t(p, language)}
+                      </button>
+                    ))}
+                  </div>
+               </div>
+             )}
 
-             <div className="flex gap-8 mb-8 border-b dark:border-slate-800">
-                <button onClick={() => { setHistorySubTab('total'); setSelectedHistoryCategory(null); }} className={`relative pb-4 text-sm font-bold transition-all px-1 ${historySubTab === 'total' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'}`}>
+             <div className="flex gap-4 md:gap-8 mb-8 border-b dark:border-slate-800 overflow-x-auto no-scrollbar">
+                <button onClick={() => { setHistorySubTab('total'); setSelectedHistoryCategory(null); }} className={`relative pb-4 text-sm font-bold transition-all px-1 whitespace-nowrap ${historySubTab === 'total' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'}`}>
                   Report Completo
                   {historySubTab === 'total' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full shadow-[0_-4px_10px_rgba(59,130,246,0.5)]" />}
                 </button>
-                <button onClick={() => { if (historySubTab === 'categories' && selectedHistoryCategory) setSelectedHistoryCategory(null); else setHistorySubTab('categories'); }} className={`relative pb-4 text-sm font-bold transition-all px-1 ${historySubTab === 'categories' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'}`}>
+                <button onClick={() => { if (historySubTab === 'categories' && selectedHistoryCategory) setSelectedHistoryCategory(null); else setHistorySubTab('categories'); }} className={`relative pb-4 text-sm font-bold transition-all px-1 whitespace-nowrap ${historySubTab === 'categories' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'}`}>
                   Per Categoria
                   {historySubTab === 'categories' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full shadow-[0_-4px_10px_rgba(59,130,246,0.5)]" />}
                 </button>
+                <button onClick={() => { setHistorySubTab('subscriptions'); setSelectedHistoryCategory(null); }} className={`relative pb-4 text-sm font-bold transition-all px-1 whitespace-nowrap ${historySubTab === 'subscriptions' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-400'}`}>
+                  {t('subscriptions', language)}
+                  {historySubTab === 'subscriptions' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full shadow-[0_-4px_10px_rgba(59,130,246,0.5)]" />}
+                </button>
              </div>
 
-             {historySubTab === 'total' ? (
+             {historySubTab === 'total' && (
                 <div className="space-y-8 animate-fade-in">
                    <button onClick={handleAnalyze} disabled={isAnalyzing} className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 rounded-2xl shadow-xl font-bold flex items-center justify-center gap-3 hover:scale-[1.01] transition-transform">
                      {isAnalyzing ? <span className="animate-pulse">Analisi in corso...</span> : <><BrainCircuit/> Genera Analisi Finanziaria AI</>}
@@ -474,7 +523,9 @@ function App() {
                       groupByMonth={true}
                    />
                 </div>
-             ) : (
+             )}
+             
+             {historySubTab === 'categories' && (
                 <div className="animate-fade-in">
                    {!selectedHistoryCategory ? (
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -501,12 +552,107 @@ function App() {
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                              <BalanceTrendChart transactions={categoryFilteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
-                             <PaymentMethodPieChart type={transactions.find(t => t.category === selectedHistoryCategory)?.type || TransactionType.EXPENSE} transactions={categoryFilteredTransactions} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
                           </div>
                           <TransactionList transactions={categoryFilteredTransactions} onDelete={handleDeleteTransaction} baseCurrency={baseCurrency} language={language} isDarkMode={isDarkMode} />
                       </div>
                    )}
                 </div>
+             )}
+
+             {historySubTab === 'subscriptions' && (
+               <div className="space-y-8 animate-fade-in">
+                  <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                      <h3 className={`font-bold text-lg mb-4 flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}><Repeat size={20} className="text-blue-500"/> Nuovo Abbonamento</h3>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <input 
+                           type="text" 
+                           placeholder="Nome (es. Netflix)" 
+                           className={`p-3 rounded-xl border outline-none focus:ring-2 focus:ring-blue-500 ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`} 
+                           value={newSub.name || ''} 
+                           onChange={e => setNewSub({...newSub, name: e.target.value})} 
+                        />
+                        <div className="flex gap-2">
+                           <input 
+                             type="number" 
+                             placeholder="Importo" 
+                             className={`flex-1 p-3 rounded-xl border outline-none focus:ring-2 focus:ring-blue-500 ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`} 
+                             value={newSub.amount || ''} 
+                             onChange={e => setNewSub({...newSub, amount: Number(e.target.value)})} 
+                           />
+                           <select 
+                             className={`w-24 p-3 rounded-xl border outline-none ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`}
+                             value={newSub.currency} 
+                             onChange={e => setNewSub({...newSub, currency: e.target.value as Currency})}
+                           >
+                              <option value="EUR">EUR</option>
+                              <option value="USD">USD</option>
+                              <option value="PLN">PLN</option>
+                           </select>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                         <select 
+                           className={`p-3 rounded-xl border outline-none focus:ring-2 focus:ring-blue-500 ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`}
+                           value={newSub.category} 
+                           onChange={e => setNewSub({...newSub, category: e.target.value})}
+                         >
+                            {CATEGORIES.EXPENSE.map(c => <option key={c} value={c}>{t(c, language)}</option>)}
+                         </select>
+                         <select 
+                           className={`p-3 rounded-xl border outline-none focus:ring-2 focus:ring-blue-500 ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`}
+                           value={newSub.frequency} 
+                           onChange={e => setNewSub({...newSub, frequency: e.target.value as any})}
+                         >
+                            <option value="MONTHLY">Mensile</option>
+                            <option value="YEARLY">Annuale</option>
+                         </select>
+                      </div>
+                      
+                      <div className="mb-6">
+                         <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Primo/Prossimo Pagamento</label>
+                         <input 
+                           type="date" 
+                           className={`w-full p-3 rounded-xl border outline-none focus:ring-2 focus:ring-blue-500 ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`} 
+                           value={newSub.nextPaymentDate} 
+                           onChange={e => setNewSub({...newSub, nextPaymentDate: e.target.value})} 
+                         />
+                      </div>
+                      
+                      <button onClick={handleAddSub} className="w-full bg-blue-600 text-white py-3 rounded-xl font-black shadow-lg shadow-blue-600/30 hover:bg-blue-700 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
+                        <Plus size={20}/> AGGIUNGI ABBONAMENTO
+                      </button>
+                  </div>
+
+                  <div className="space-y-3">
+                     {subs.map(s => (
+                       <div key={s.id} className={`flex justify-between items-center p-4 rounded-2xl border shadow-sm transition-colors ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                           <div>
+                              <div className={`font-bold text-lg ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{s.name}</div>
+                              <div className="text-sm font-medium text-slate-500 mt-1 flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${isDarkMode ? 'bg-slate-700 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>{s.category}</span>
+                                <span>•</span>
+                                <span>{s.frequency === 'MONTHLY' ? 'Mensile' : 'Annuale'}</span>
+                              </div>
+                              <div className="text-xs text-slate-400 mt-1">Prossimo rinnovo: {s.nextPaymentDate}</div>
+                           </div>
+                           <div className="flex items-center gap-4">
+                              <div className="text-right">
+                                <div className={`font-black text-lg ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>-{formatCurrency(s.amount, s.currency)}</div>
+                              </div>
+                              <button onClick={() => handleDeleteSub(s.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"><Trash2 size={20}/></button>
+                           </div>
+                       </div>
+                     ))}
+                     {subs.length === 0 && (
+                        <div className="text-center py-10 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800">
+                           <Repeat className="w-10 h-10 text-slate-300 mx-auto mb-2"/>
+                           <p className="text-slate-400 font-medium">Nessun abbonamento attivo</p>
+                        </div>
+                     )}
+                  </div>
+               </div>
              )}
           </div>
         )}

@@ -53,13 +53,7 @@ export const TRANSLATIONS: Translations = {
   payment_method: { it: 'Metodo', en: 'Method', pl: 'Metoda' },
   cash: { it: 'Contanti', en: 'Cash', pl: 'Gotówka' },
   card: { it: 'Carta', en: 'Card', pl: 'Karta' },
-
-  // Periods
-  DAILY: { it: 'Oggi', en: 'Daily', pl: 'Dzienny' },
-  WEEKLY: { it: 'Settimana', en: 'Weekly', pl: 'Tygodniowy' },
-  MONTHLY: { it: 'Mese', en: 'Monthly', pl: 'Miesięczny' },
-  YEARLY: { it: 'Anno', en: 'Yearly', pl: 'Roczny' },
-  ALL: { it: 'Tutto', en: 'All', pl: 'Wszystko' },
+  subscriptions: { it: 'Abbonamenti', en: 'Subscriptions', pl: 'Subskrypcje' },
 
   // Categories (Mapping existing DB keys to translations)
   'Alimentari': { it: 'Alimentari', en: 'Groceries', pl: 'Żywność' },

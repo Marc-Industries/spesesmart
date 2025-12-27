@@ -14,7 +14,6 @@ export enum Period {
 
 export type Currency = 'EUR' | 'USD' | 'PLN';
 export type Language = 'it' | 'en' | 'pl';
-export type PaymentMethod = 'CASH' | 'CARD';
 
 export interface UserPreferences {
   currency: Currency;
@@ -39,7 +38,18 @@ export interface Transaction {
   category: string;
   description: string;
   type: TransactionType;
-  paymentMethod: PaymentMethod; // Obbligatorio
+}
+
+export interface Subscription {
+  id: string;
+  userId: string;
+  name: string;
+  amount: number;
+  currency: Currency;
+  category: string;
+  frequency: 'MONTHLY' | 'YEARLY';
+  nextPaymentDate: string; // ISO String (YYYY-MM-DD)
+  active: boolean;
 }
 
 export interface ChartDataPoint {

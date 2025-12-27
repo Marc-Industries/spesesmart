@@ -167,24 +167,3 @@ export const BalanceTrendChart: React.FC<ChartsProps> = ({ transactions, baseCur
     </div>
   );
 };
-
-export const PaymentMethodPieChart: React.FC<ChartsProps & { type: TransactionType }> = ({ transactions, baseCurrency, language, isDarkMode, type }) => {
-    const filtered = transactions.filter(t => t.type === type);
-    
-    const dataMap = filtered.reduce((acc, curr) => {
-      const convertedAmount = convertCurrency(curr.amount, curr.currency, baseCurrency);
-      const method = curr.paymentMethod || 'CARD'; 
-      acc[method] = (acc[method] || 0) + convertedAmount;
-      return acc;
-    }, {} as Record<string, number>);
-  
-    // Usiamo colori fissi per CASH e CARD
-    const data = [
-      { name: t('cash', language), value: dataMap['CASH'] || 0, color: '#10b981' }, // Verde Smeraldo fisso per Contanti
-      { name: t('card', language), value: dataMap['CARD'] || 0, color: '#3b82f6' }  // Blu fisso per Carta
-    ].filter(d => d.value > 0);
-    
-    const title = type === TransactionType.INCOME ? t('chart_payment_income', language) : t('chart_payment_expense', language);
-  
-    return <CommonPieChart title={title} data={data} colors={[]} baseCurrency={baseCurrency} isDarkMode={isDarkMode} />;
-};
